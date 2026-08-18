@@ -41,6 +41,7 @@ import * as trade from './systems/trade';
 import * as alerts from './systems/alerts';
 import type { Haul } from './systems/hauling';
 import { spoilFood } from './systems/spoilage';
+import { checkMilestones } from './systems/milestones';
 import { seasonTick } from './systems/seasons';
 import { setupStart } from './systems/founding';
 
@@ -130,6 +131,8 @@ export class Game {
   removedNodes: number[] = [];
   /** Goods abandoned because there was nowhere to put them. */
   lostGoods: Amounts = {};
+  /** Milestone id -> the day it was reached. The sandbox's chronicle of firsts. */
+  milestonesDone: Record<string, number> = {};
 
   /** The seed this valley was generated from — needed to rebuild it on load. */
   readonly seed: number;
@@ -251,6 +254,7 @@ export class Game {
     spoilFood(this);
     trade.runTradeOrders(this);
     trade.decayTradePrices(this);
+    checkMilestones(this);
 
     if (this.autoAssign) labour.reassign(this);
 

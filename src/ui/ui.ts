@@ -13,6 +13,7 @@ import type { Building } from '../sim/building';
 import type { Game } from '../sim/game';
 import { backlog, storageCapacity, storageUsed } from '../sim/systems/inventory';
 import { foodDaysLeft } from '../sim/systems/labour';
+import { MILESTONES } from '../sim/systems/milestones';
 import type { Villager } from '../sim/villager';
 
 const SEASON_COLOR: Record<string, string> = {
@@ -821,6 +822,25 @@ export class UI {
         `<td>${Math.round(have)}</td></tr>`);
     }
     out.push('</table>');
+
+    // The chronicle of firsts: done ones dated, the three nearest next.
+    out.push('<div class="section">Milestones</div>');
+    const done = MILESTONES.filter((m) => g.milestonesDone[m.id] !== undefined);
+    const open = MILESTONES
+      .filter((m) => g.milestonesDone[m.id] === undefined)
+      .map((m) => ({ m, p: m.progress(g) }))
+      .sort((a, b) => (b.p.value / b.p.target) - (a.p.value / a.p.target));
+    for (const m of done) {
+      const day = g.milestonesDone[m.id];
+      out.push(`<div class="row"><span>✓ ${m.name}</span><b>Year ${Math.floor(day / (TUNING.daysPerSeason * 4)) + 1}</b></div>`);
+    }
+    for (const { m, p } of open.slice(0, 3)) {
+      const pct = Math.round((p.value / p.target) * 100);
+      out.push(`<div class="row"><span>${m.name}</span><b>${pct}%</b></div>
+        <div class="bar"><i style="width:${pct}%"></i></div>
+        <div class="hint" style="margin:-2px 0 4px">${m.desc}</div>`);
+    }
+    if (!open.length) out.push('<p>Every milestone reached. The valley is yours.</p>');
 
     // Labour and logistics: the "producing but not moving" diagnostics.
     const starved = [...g.buildings.values()].filter((b) =>

@@ -74,6 +74,8 @@ export interface SaveData {
   tradeRules: unknown;
   stats: unknown;
   lostGoods: Record<string, number>;
+  /** Absent in saves from before milestones existed; defaults to none. */
+  milestones?: Record<string, number>;
   startX: number; startY: number;
   nextIds: { building: number; villager: number; family: number };
   world: {
@@ -117,6 +119,7 @@ export function serialize(g: Game, label = 'Manual save'): SaveData {
     tradeRules: g.tradeRules,
     stats: g.stats,
     lostGoods: g.lostGoods as Record<string, number>,
+    milestones: g.milestonesDone,
     startX: g.startX, startY: g.startY,
     nextIds: {
       building: peekNextBuildingId(),
@@ -184,6 +187,7 @@ export function deserialize(raw: SaveData): Game {
   g.tradeRules = data.tradeRules as Game['tradeRules'];
   g.stats = data.stats as Game['stats'];
   g.lostGoods = data.lostGoods ?? {};
+  g.milestonesDone = data.milestones ?? {};
   g.startX = data.startX; g.startY = data.startY;
 
   // Buildings first: villagers and families reference them by id.
