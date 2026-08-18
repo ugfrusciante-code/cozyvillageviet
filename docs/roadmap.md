@@ -105,6 +105,14 @@ tuning bled villages dry). The wandering tinker sells up to four tools a season 
 never below a 60-coin cushion: the blacksmith is the answer, the tinker is the apology. The
 iron chain is now a daily industry, which is also what raids and future militia want.
 
+### Phase 5.2 — Bridges ✅
+Drag planks over water like drawing a road; the crossing appears whole (builders cannot
+stand on a river). Writing the test overturned the plan's premise: a region census shows
+worldgen never actually bisects a map — every seed is one connected walk — so the honest
+claim is detour collapse, and the harness proves a 60-tile shore trudge becomes a 5-tile
+stroll. Walkable-water overlay, 0.8 step cost, additive save field, waterline-pinned mesh.
+Goldens re-recorded for payload shape only (d400 health summaries byte-identical).
+
 ## Deliberately not doing
 
 - **Multi-region** (§1.4, §4.7). The spec is region-centric because Manor Lords is a territorial
