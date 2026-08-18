@@ -202,6 +202,11 @@ export function autoPriority(g: Game, b: Building): number {
     return BAND.ROUTINE;
   }
   if (d.plants) return BAND.ROUTINE + 0.5;
+  if (d.watch) {
+    // Nobody stands in a cold tower for fun — until riders are sighted, at
+    // which point it outranks everything but a starving village.
+    return g.raidAtDay >= 0 || g.raiders.length > 0 ? BAND.URGENT + 0.2 : BAND.LOW + 0.2;
+  }
   if (d.service?.kind === 'market') {
     // A bare stall is the most urgent job in the village: every household
     // shops here, and nothing else matters if they cannot eat.

@@ -21,6 +21,7 @@
  */
 
 import { RESOURCES, TUNING, type ResId } from '../defs';
+import { mannedWatchesOver } from './watch';
 import type { Building } from '../building';
 import type { Game } from '../game';
 import type { PathPoint } from '../world';
@@ -114,7 +115,20 @@ function launchRaid(g: Game): void {
   const entry = edges[Math.floor(g.rand() * edges.length)];
   const ex = entry % w.size, ey = (entry / w.size) | 0;
 
-  const size = Math.min(6, 2 + Math.floor(visibleWealth(g) / 800));
+  // Every manned tower overlooking the target turns one rider back before
+  // the band even forms — they can see the lookout from the treeline.
+  const watched = mannedWatchesOver(g, target.entrance.x, target.entrance.y);
+  const size = Math.max(0, Math.min(6, 2 + Math.floor(visibleWealth(g) / 800)) - watched);
+  if (size === 0) {
+    g.log('Riders circled the valley, saw the watch, and rode on.', 'good');
+    for (const b of g.buildings.values()) {
+      if (b.state === 'active' && b.isHouse && b.residents.length) {
+        b.moodEvents.push({ label: 'The watch held', delta: 0.05, until: g.day + 3 });
+      }
+    }
+    standDown(g);
+    return;
+  }
   for (let i = 0; i < size; i++) {
     const raider: Raider = {
       id: g.nextRaiderId++,
@@ -174,7 +188,10 @@ export function stepRaiders(g: Game, dt: number): void {
           if (v > bestV) { bestV = v; bestRes = res; }
         }
         if (bestRes) {
-          const amt = Math.min(b.available(bestRes), TUNING.carryCapacity);
+          // Spotted early, they grab in haste: half sacks under a manned watch.
+          const sack = mannedWatchesOver(g, b.cx, b.cy) > 0
+            ? TUNING.carryCapacity / 2 : TUNING.carryCapacity;
+          const amt = Math.min(b.available(bestRes), sack);
           b.take(bestRes, amt);
           r.carry = { res: bestRes, amt };
           g.raidLosses[bestRes] = (g.raidLosses[bestRes] ?? 0) + amt;

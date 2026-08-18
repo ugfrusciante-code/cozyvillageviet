@@ -257,6 +257,13 @@ export interface BuildingDef {
   homes?: number;
   /** Draught oxen stabled here, each of which lets a haulier pull a cart. */
   oxen?: number;
+  /**
+   * A manned lookout: raids on stores within this radius are spotted early.
+   * Each watched tower turns one raider back and halves the others' sacks —
+   * but only while somebody is actually standing in it. Defence is a job,
+   * not a purchase.
+   */
+  watch?: { radius: number };
   /** Renderer hints. */
   height: number;
   palette: 'timber' | 'stone' | 'thatch' | 'brick' | 'canvas' | 'garden' | 'field';
@@ -512,6 +519,12 @@ export const BUILDINGS: BuildingDef[] = [
     size: [4, 4], cost: { logs: 20, planks: 10 }, buildWork: 55, jobs: 2,
     service: { kind: 'market', radius: 26 },
     storage: 340, charm: 3, charmRadius: 10, height: 1.6, palette: 'canvas',
+  }),
+  B({
+    id: 'watchtower', name: 'Watchtower', cat: 'civic', icon: '🗼',
+    desc: 'A manned lookout. Raiders spotted early turn back or leave lighter — if someone is up there.',
+    size: [2, 2], cost: { logs: 14, planks: 8, stone: 6, tools: 1 }, buildWork: 50, jobs: 1,
+    watch: { radius: 18 }, minPop: 10, height: 4.6, palette: 'timber',
   }),
   B({
     id: 'chapel', name: 'Chapel', cat: 'civic', icon: '⛪',

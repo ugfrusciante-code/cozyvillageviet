@@ -289,8 +289,8 @@ export class Villager {
     if (def.recipe) { this.craftLoop(g, dt, b); return; }
     if (def.service || b.isStorage) { this.tendLoop(g, dt, b); return; }
 
-    // Job with no behaviour (town hall clerk): just be present.
-    this.stayAt(g, dt, b, 'Keeping the ledgers');
+    // Job with no behaviour (town hall clerk, watchman): just be present.
+    this.stayAt(g, dt, b, b.def.watch ? 'Watching the road' : 'Keeping the ledgers');
   }
 
   private stayAt(g: Game, dt: number, b: Building, label: string): void {
