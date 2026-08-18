@@ -1,0 +1,128 @@
+{
+  "7": {
+    "d25": {
+      "all": "f980b38b",
+      "clock": "68dcb4a8",
+      "economy": "1226edc2",
+      "world": "a0937102",
+      "buildings": "cc6a131e",
+      "villagers": "d78edd84",
+      "families": "3ee745ef",
+      "derived": "6043f4c9"
+    },
+    "d50": {
+      "all": "a0899fb6",
+      "clock": "ab5aeb8d",
+      "economy": "f0a33268",
+      "world": "99f6b835",
+      "buildings": "879c47d4",
+      "villagers": "aee8f3ca",
+      "families": "20128531",
+      "derived": "d263e52c"
+    },
+    "d100": {
+      "all": "58a4f044",
+      "clock": "4633854f",
+      "economy": "4cb859ce",
+      "world": "2361dae6",
+      "buildings": "87028c80",
+      "villagers": "6af2293b",
+      "families": "28e0c7c7",
+      "derived": "4974ef7a"
+    },
+    "d150": {
+      "all": "553c4cb0",
+      "clock": "7ddcd3c9",
+      "economy": "d4beffc3",
+      "world": "decb06d7",
+      "buildings": "1cc5a932",
+      "villagers": "52c8e875",
+      "families": "2770b0a3",
+      "derived": "c729a31f"
+    }
+  },
+  "4242": {
+    "d25": {
+      "all": "4ffe907f",
+      "clock": "1a059123",
+      "economy": "721ac9c1",
+      "world": "c03ba991",
+      "buildings": "84deeda9",
+      "villagers": "a9a0eb6a",
+      "families": "6ecbb375",
+      "derived": "b958f481"
+    },
+    "d50": {
+      "all": "772a5459",
+      "clock": "76068453",
+      "economy": "f6d35366",
+      "world": "b899da13",
+      "buildings": "ac066f2f",
+      "villagers": "08844d4e",
+      "families": "4b59f26f",
+      "derived": "2d5d2c24"
+    },
+    "d100": {
+      "all": "18962b7f",
+      "clock": "4928161f",
+      "economy": "381f3079",
+      "world": "0cadfbd4",
+      "buildings": "e39f2500",
+      "villagers": "58c9d228",
+      "families": "80df6fc2",
+      "derived": "7b197347"
+    },
+    "d150": {
+      "all": "e53f0acc",
+      "clock": "e2f35df6",
+      "economy": "7329d8e7",
+      "world": "92e6f90b",
+      "buildings": "721892f8",
+      "villagers": "f4df70e6",
+      "families": "c63ab790",
+      "derived": "3c1014c7"
+    }
+  },
+  "20260817": {
+    "d25": {
+      "all": "ff8996be",
+      "clock": "1db3eeb7",
+      "economy": "7dd42768",
+      "world": "8d70aa22",
+      "buildings": "e01cde9d",
+      "villagers": "bfa8b6a5",
+      "families": "680938e2",
+      "derived": "ac625e08"
+    },
+    "d50": {
+      "all": "39ff4d83",
+      "clock": "98d86aff",
+      "economy": "8bf61941",
+      "world": "7b5a587b",
+      "buildings": "71e08e23",
+      "villagers": "20786852",
+      "families": "ed8c0194",
+      "derived": "0987bfa6"
+    },
+    "d100": {
+      "all": "c6463d0e",
+      "clock": "2b3f9d24",
+      "economy": "3a4167c4",
+      "world": "0ebdb815",
+      "buildings": "89dc2811",
+      "villagers": "e41590d7",
+      "families": "839eb706",
+      "derived": "a02a93f8"
+    },
+    "d150": {
+      "all": "296768d6",
+      "clock": "dad0b1cd",
+      "economy": "85586eea",
+      "world": "c91e2112",
+      "buildings": "bef86c05",
+      "villagers": "b265b250",
+      "families": "839eb706",
+      "derived": "ef1587c3"
+    }
+  }
+}

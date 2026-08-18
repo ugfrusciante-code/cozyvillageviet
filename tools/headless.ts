@@ -2,103 +2,24 @@
  * Runs the simulation with no renderer, building out a plausible village, so
  * the economy can be checked for stalls, starvation and deadlocked hauling.
  *
- *   npm run sim
+ *   npm run sim [days] [seed]
+ *
+ * The build order itself lives in `driver.ts`, shared with `determinism.ts`.
  */
 
-import { Game } from '../src/sim/game';
-import { BUILDING_BY_ID, FOOD_TYPES, TUNING, type ResId } from '../src/sim/defs';
-import { RNG } from '../src/sim/world';
+import { FOOD_TYPES, TUNING, type ResId } from '../src/sim/defs';
+import { runVillage } from './driver';
+import type { Game } from '../src/sim/game';
 
-const SEED = Number(process.argv[3] ?? 20260817);
-const g = new Game(SEED);
-g.speed = 1;
-const prng = new RNG(SEED ^ 0x5f3a);
-
-const ox = g.startX, oy = g.startY;
-
-/** Try to place `defId` somewhere near the settlement centre. */
-function plop(defId: string, hintX = ox, hintY = oy, spread = 26): boolean {
-  const def = BUILDING_BY_ID[defId];
-  for (let r = 1; r < spread; r++) {
-    for (let k = 0; k < 26; k++) {
-      const a = prng.next() * Math.PI * 2;
-      const x = Math.round(hintX + Math.cos(a) * r);
-      const y = Math.round(hintY + Math.sin(a) * r);
-      if (g.canPlace(defId, x, y).ok) {
-        const b = g.place(defId, x, y);
-        if (b) { b.jobSlots = def.jobs; return true; }
-      }
-    }
-  }
-  return false;
-}
-
-/**
- * A build order a competent player might follow. Each entry only goes down
- * once the village can support it, and only two sites run at a time — which is
- * how a real player paces construction.
- */
-const QUEUE: { id: string; minPop?: number }[] = [
-  { id: 'woodcutter' }, { id: 'forager' }, { id: 'woodshed' },
-  { id: 'cottage' }, { id: 'sawpit' }, { id: 'cottage' },
-  { id: 'granary', minPop: 9 }, { id: 'forester', minPop: 9 },
-  { id: 'hunter', minPop: 10 }, { id: 'cottage', minPop: 10 },
-  { id: 'quarry', minPop: 11 }, { id: 'chapel', minPop: 11 },
-  { id: 'cottage', minPop: 12 }, { id: 'field', minPop: 13 },
-  { id: 'pasture', minPop: 14 }, { id: 'cottage', minPop: 15 },
-  { id: 'weaver', minPop: 16 }, { id: 'tailor', minPop: 17 },
-  { id: 'mill', minPop: 18 }, { id: 'bakery', minPop: 19 },
-  { id: 'cottage', minPop: 20 }, { id: 'townhall', minPop: 21 },
-  { id: 'well', minPop: 22 }, { id: 'claypit', minPop: 24 },
-  { id: 'kiln', minPop: 25 }, { id: 'cottage', minPop: 26 },
-  { id: 'herbalist', minPop: 27 }, { id: 'brewery', minPop: 28 },
-  { id: 'tavern', minPop: 30 }, { id: 'garden', minPop: 30 },
-  { id: 'tannery', minPop: 32 }, { id: 'cobbler', minPop: 33 },
-  { id: 'cottage', minPop: 34 }, { id: 'storehouse', minPop: 35 },
-  { id: 'blacksmith', minPop: 36 }, { id: 'tradepost', minPop: 38 },
-  { id: 'apiary', minPop: 39 }, { id: 'chandler', minPop: 40 },
-  { id: 'school', minPop: 42 }, { id: 'apothecary', minPop: 44 },
-  { id: 'healer', minPop: 46 }, { id: 'pottery', minPop: 48 },
-  { id: 'church', minPop: 50 }, { id: 'fountain', minPop: 52 },
-];
-
-let qi = 0;
-let lastReport = -1;
-let lastCheck = -1;
 const DAYS = Number(process.argv[2] ?? 70);
+const SEED = Number(process.argv[3] ?? 20260817);
 
-const step = 1 / 12;
-let guard = 0;
-while (g.day < DAYS && guard++ < 8_000_000) {
-  g.update(step);
-
-  // Re-evaluate the build order a few times a day.
-  const slot = Math.floor(g.totalHours / 6);
-  if (slot !== lastCheck) {
-    lastCheck = slot;
-    const openSites = [...g.buildings.values()].filter((b) => b.state !== 'active').length;
-    if (openSites < 2 && qi < QUEUE.length) {
-      const next = QUEUE[qi];
-      if (g.population >= (next.minPop ?? 0)) {
-        if (plop(next.id)) qi++;
-        else if (g.canPlace(next.id, g.startX, g.startY).reason?.includes('Requires')) { /* wait */ }
-        else { console.log(`  [day ${g.day}] skipped ${next.id}`); qi++; }
-      }
-    }
-  }
-
-  if (g.day !== lastReport && g.hour > 12) {
-    lastReport = g.day;
-    if (g.day % 4 === 0) report();
-  }
-}
-
-function stockLine(): string {
+function stockLine(g: Game): string {
   const keys: ResId[] = ['logs', 'planks', 'stone', 'firewood', 'bread', 'berries', 'meat', 'grain', 'clothes', 'ale'];
   return keys.map((k) => `${k[0].toUpperCase()}${k.slice(1, 3)} ${Math.round(g.stockOf(k))}`).join('  ');
 }
 
-function report(): void {
+function report(g: Game): void {
   const food = FOOD_TYPES.reduce((s, f) => s + g.stockOf(f), 0);
   const daysFood = food / Math.max(1, g.population * TUNING.foodPerDay);
   const tiers = [0, 0, 0];
@@ -111,11 +32,16 @@ function report(): void {
     `coin ${Math.round(g.coin).toString().padStart(5)} | ` +
     `food ${daysFood.toFixed(1)}d | homes T1/2/3 ${tiers.join('/')} | sites ${sites}`,
   );
-  if (g.day % 12 === 0) console.log(`         ${stockLine()}`);
+  if (g.day % 12 === 0) console.log(`         ${stockLine(g)}`);
 }
 
+const g = runVillage(SEED, DAYS, {
+  onDay: (game) => { if (game.day % 4 === 0) report(game); },
+  onSkip: (game, id) => console.log(`  [day ${game.day}] skipped ${id}`),
+});
+
 console.log('\n--- final ---');
-report();
+report(g);
 console.log(`buildings: ${g.buildings.size}, villagers: ${g.villagers.size}`);
 for (const b of g.buildings.values()) {
   console.log(
