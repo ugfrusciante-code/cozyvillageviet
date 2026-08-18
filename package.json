@@ -8,16 +8,17 @@
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "check": "tsc --noEmit",
-    "sim": "tsx tools/headless.ts"
+    "sim": "tsx tools/headless.ts",
+    "test": "tsx tools/save-test.ts && tsx tools/haul-save-test.ts && tsx tools/bootstrap-test.ts && tsx tools/ox-test.ts"
   },
   "devDependencies": {
     "@types/node": "^26.2.0",
+    "@types/three": "^0.169.0",
     "tsx": "^4.19.2",
     "typescript": "^5.6.3",
     "vite": "^5.4.10"
   },
   "dependencies": {
-    "@types/three": "^0.169.0",
     "three": "^0.169.0"
   }
 }

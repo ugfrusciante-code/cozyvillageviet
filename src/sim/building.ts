@@ -8,7 +8,7 @@ import {
 } from './defs';
 import type { World } from './world';
 
-export type BuildingState = 'blueprint' | 'building' | 'active';
+export type BuildingState = 'building' | 'active';
 
 /** Rolling record of what a household actually received. */
 export interface HomeSupply {
@@ -45,7 +45,7 @@ export class Building {
   /** Cosmetic variation seed for the renderer. */
   variant = 0;
 
-  state: BuildingState = 'blueprint';
+  state: BuildingState = 'building';
   /** Materials delivered to the site so far. */
   delivered: Amounts = {};
   /** Labour applied to the frame. */

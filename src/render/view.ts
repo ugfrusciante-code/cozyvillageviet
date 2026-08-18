@@ -12,7 +12,7 @@ import {
 } from 'three';
 
 import { C, SEASON_LOOK, skyOfDay } from './palette';
-import { NODE_INDEX, WATER_LEVEL, type World } from '../sim/world';
+import { NODE_INDEX, WATER_LEVEL } from '../sim/world';
 import type { Game } from '../sim/game';
 import type { Season } from '../sim/defs';
 
@@ -55,7 +55,6 @@ export class View {
 
   private raycaster = new Raycaster();
   private season: Season = 'spring';
-  private snowAmount = 0;
 
   readonly propRoot = new Group();
   private smoke!: Points;
@@ -746,7 +745,6 @@ export class View {
         .copy(new Color(0x86a45c)).lerp(snowC, winter ? 0.75 : this.season === 'autumn' ? 0.2 : 0);
       this.tufts.visible = !winter;
       this.flowers.visible = this.season === 'spring' || this.season === 'summer';
-      this.snowAmount = look.snow;
     }
 
     this.updateWeather(dt);
@@ -793,7 +791,6 @@ export class View {
     this.renderer.render(this.scene, this.camera);
   }
 
-  get snow(): number { return this.snowAmount; }
 }
 
 export { UP };

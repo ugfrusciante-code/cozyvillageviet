@@ -50,6 +50,7 @@ function snapshot(x: Game) {
   }, null, 1);
 }
 
+let failed = 0;
 const before = snapshot(g);
 const data = serialize(g);
 const json = JSON.stringify(data);
@@ -62,6 +63,7 @@ console.log(`buildings ${g.buildings.size}  villagers ${g.villagers.size}  famil
 if (before === after) {
   console.log('PASS: state identical after round-trip');
 } else {
+  failed++;
   console.log('FAIL: state diverged');
   const a = before.split('\n'), b = after.split('\n');
   for (let i = 0; i < Math.max(a.length, b.length); i++) {
@@ -72,6 +74,7 @@ if (before === after) {
 // Both games should now advance identically for another 10 days.
 for (let i = 0; i < 12 * 60 * 10; i++) { g.update(1 / 12); g2.update(1 / 12); }
 const b2 = snapshot(g), a2 = snapshot(g2);
+if (b2 !== a2) failed++;
 console.log(b2 === a2
   ? 'PASS: 10 further days simulate identically'
   : 'FAIL: divergence after continued simulation');
@@ -82,3 +85,5 @@ if (b2 !== a2) {
   }
 }
 void BUILDING_BY_ID;
+
+process.exit(failed === 0 ? 0 : 1);

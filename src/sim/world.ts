@@ -290,23 +290,6 @@ export class World {
     return out;
   }
 
-  /** Nearest matching node, or -1. Ties broken by distance. */
-  nearestNode(cx: number, cy: number, kind: NodeKind, radius: number): number {
-    const want = NODE_INDEX[kind];
-    let best = -1, bestD = Infinity;
-    const r = Math.ceil(radius);
-    for (let y = Math.max(0, cy - r); y <= Math.min(this.size - 1, cy + r); y++) {
-      for (let x = Math.max(0, cx - r); x <= Math.min(this.size - 1, cx + r); x++) {
-        const dx = x - cx, dy = y - cy;
-        const d = dx * dx + dy * dy;
-        if (d > radius * radius || d >= bestD) continue;
-        const i = this.idx(x, y);
-        if (this.node[i] === want && this.nodeAmt[i] > 0 && !this.water[i]) { best = i; bestD = d; }
-      }
-    }
-    return best;
-  }
-
   isNearWater(cx: number, cy: number, radius = 3): boolean {
     for (let y = Math.max(0, cy - radius); y <= Math.min(this.size - 1, cy + radius); y++) {
       for (let x = Math.max(0, cx - radius); x <= Math.min(this.size - 1, cx + radius); x++) {

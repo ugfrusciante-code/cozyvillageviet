@@ -20,13 +20,6 @@ const FIRST = [
   'Ulric', 'Verity', 'Wren', 'Yarrow', 'Zeph', 'Marlow', 'Odette', 'Bram', 'Clover', 'Elowen',
   'Fable', 'Gwyn', 'Hollis', 'Isolde', 'Jory', 'Kit', 'Lark', 'Mabel', 'Nyle', 'Opal',
 ];
-const LAST = [
-  'Ashdown', 'Barleycorn', 'Cobb', 'Dunmore', 'Ellersby', 'Fallow', 'Greenhollow', 'Hearth',
-  'Ingle', 'Junipers', 'Kilnwright', 'Longmead', 'Millbrook', 'Northgate', 'Oakhanger',
-  'Pennyfeather', 'Quarrell', 'Rushmere', 'Stonely', 'Thatcher', 'Underhill', 'Vale',
-  'Wickstead', 'Yewbank',
-];
-
 let nextVillagerId = 1;
 export function resetVillagerIds(): void { nextVillagerId = 1; }
 export function setNextVillagerId(n: number): void { nextVillagerId = n; }
@@ -70,8 +63,6 @@ export class Villager {
   health = 1;
   /** Cooldown so failed searches do not thrash the pathfinder. */
   retry = 0;
-  /** Seconds spent unable to do anything useful. */
-  idleTime = 0;
   /** True while this villager has an ox and cart yoked for a haul. */
   hasOx = false;
 
@@ -81,7 +72,7 @@ export class Villager {
     this.x = x; this.y = y;
     this.age = age;
     this.lifespan = 48 + Math.floor(rand() * 20);
-    this.name = `${FIRST[Math.floor(rand() * FIRST.length)]} ${LAST[Math.floor(rand() * LAST.length)]}`;
+    this.name = FIRST[Math.floor(rand() * FIRST.length)];
     this.skill = 0.8 + rand() * 0.2;
   }
 
@@ -89,6 +80,12 @@ export class Villager {
   get capacity(): number {
     return this.hasOx ? TUNING.cartCapacity : TUNING.carryCapacity;
   }
+
+  /** Given name only until a family adopts them; then "Given Surname". */
+  get given(): string { return this.name.split(' ')[0]; }
+
+  /** Take a household's name. The single place a full name is assembled. */
+  takeSurname(surname: string): void { this.name = `${this.given} ${surname}`; }
 
   get isAdult(): boolean { return this.age >= 14 && this.age < 64; }
   get isChild(): boolean { return this.age < 14; }
@@ -208,7 +205,7 @@ export class Villager {
 
   private goHome(g: Game, dt: number, home: Building | undefined): void {
     this.activity = 'Heading home';
-    if (!home) { this.idleTime += dt; this.action = 'idle'; return; }
+    if (!home) { this.action = 'idle'; return; }
     if (this.action === 'sleeping') {
       this.activity = 'Asleep';
       this.health = Math.min(1, this.health + dt * 0.01);
@@ -296,7 +293,7 @@ export class Villager {
     }
 
     if (this.targetNode < 0) {
-      if (this.retry > 0) { this.activity = 'Looking for work'; this.idleTime += dt; return; }
+      if (this.retry > 0) { this.activity = 'Looking for work'; return; }
       const node = g.claimNode(b, hv.kind, hv.radius);
       if (node < 0) {
         b.status = `No ${hv.kind} left in range`;
@@ -657,7 +654,7 @@ export class Villager {
 
   private doDeliver(g: Game, dt: number): void {
     if (this.action !== 'toDrop') {
-      if (!this.beginDeliver(g)) { this.idleTime += dt; }
+      this.beginDeliver(g);
       return;
     }
     this.doTrip(g, dt);
@@ -866,7 +863,7 @@ export class Villager {
       this.activity = 'Off to the building site';
       return;
     }
-    if (this.retry > 0) { this.idleTime += dt; this.idleLife(g, dt, g.buildings.get(this.homeId), false); return; }
+    if (this.retry > 0) { this.idleLife(g, dt, g.buildings.get(this.homeId), false); return; }
 
     // Keeping the stalls stocked beats every other odd job.
     if (this.tryRestockMarket(g)) return;
@@ -891,7 +888,6 @@ export class Villager {
 
     this.retry = 1.5 + g.rand() * 2;
     this.activity = 'Looking for work';
-    this.idleTime += dt;
     this.idleLife(g, dt, g.buildings.get(this.homeId), false);
   }
 

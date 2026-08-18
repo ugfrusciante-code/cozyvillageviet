@@ -52,11 +52,14 @@ import('../src/sim/villager').then(async ({ Villager }) => {
   console.log(`peak oxen in use: ${maxInUse} / ${g.oxenTotal}`);
   console.log(`cart-frames observed: ${everCarted}`);
   console.log(`largest single load: ${maxLoad.toFixed(0)} (walking cap ${TUNING.carryCapacity}, cart cap ${TUNING.cartCapacity})`);
-  console.log(maxLoad > TUNING.carryCapacity ? 'PASS: carts move more than a person can' : 'FAIL: no oversized load seen');
-  console.log(g.oxenInUse <= g.oxenTotal ? 'PASS: ox pool never oversubscribed' : 'FAIL: ox leak');
+  let failed = 0;
+  const gate = (ok: boolean, msg: string) => { if (!ok) failed++; console.log(`${ok ? 'PASS' : 'FAIL'}: ${msg}`); };
+  gate(maxLoad > TUNING.carryCapacity, 'carts move more than a person can');
+  gate(g.oxenInUse <= g.oxenTotal, 'ox pool never oversubscribed');
 
   // Nobody mid-trip at the end should leave the pool stuck high forever.
   const carrying = [...g.villagers.values()].filter((v) => v.hasOx).length;
   console.log(`oxen accounted for: inUse=${g.oxenInUse}, villagers holding=${carrying}`);
-  console.log(g.oxenInUse === carrying ? 'PASS: ox accounting balanced' : 'FAIL: ox counter drifted');
+  gate(g.oxenInUse === carrying, 'ox accounting balanced');
+  process.exit(failed === 0 ? 0 : 1);
 });

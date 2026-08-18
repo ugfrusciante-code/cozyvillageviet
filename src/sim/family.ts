@@ -4,6 +4,7 @@
  * settlement is a set of families rather than a pile of interchangeable workers.
  */
 
+/** The one surname pool. Villagers take their family's name, never their own. */
 export const SURNAMES = [
   'Ashdown', 'Barleycorn', 'Cobb', 'Dunmore', 'Ellersby', 'Fallow', 'Greenhollow', 'Hearth',
   'Ingle', 'Juniper', 'Kilnwright', 'Longmead', 'Millbrook', 'Northgate', 'Oakhanger',
@@ -27,8 +28,6 @@ export class Family {
   founded = 0;
   /** Children born into this family over its lifetime. */
   childrenBorn = 0;
-  /** Generations deep — a child who founds their own household increments this. */
-  generation = 1;
 
   constructor(surname: string, founded: number, id?: number) {
     this.id = id ?? nextFamilyId++;
