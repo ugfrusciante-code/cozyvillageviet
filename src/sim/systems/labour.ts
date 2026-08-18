@@ -33,6 +33,18 @@ export function reassign(g: Game): void {
     });
   }
 
+  // `autoPriority` is not cheap — it calls stockOf, foodDaysLeft, backlog,
+  // world.findNodes and homesServedBy — and it was being invoked from inside
+  // two sort comparators, so ranking n buildings cost O(n log n) full
+  // evaluations of it. Nothing it reads changes while reassign runs (it reads
+  // raw stores, never the reservation ledger), so each building is scored once.
+  const urgency = new Map<number, number>();
+  const urgencyOf = (b: Building): number => {
+    let p = urgency.get(b.id);
+    if (p === undefined) { p = autoPriority(g, b); urgency.set(b.id, p); }
+    return p;
+  };
+
   const free = [...g.villagers.values()].filter((v) => v.isAdult && v.jobId < 0);
 
   // Always hold back a pool of labourers. Without them nothing gets built and
@@ -47,7 +59,7 @@ export function reassign(g: Game): void {
     if (free.length < targetLabour) {
       const staffed = [...g.buildings.values()]
         .filter((b) => b.state === 'active' && b.workers.length > 0)
-        .sort((a, b) => autoPriority(g, a) - autoPriority(g, b));
+        .sort((a, b) => urgencyOf(a) - urgencyOf(b));
       for (const b of staffed) {
         while (free.length < targetLabour && b.workers.length > 0) {
           const id = b.workers.pop()!;
@@ -67,7 +79,7 @@ export function reassign(g: Game): void {
 
   const openings = [...g.buildings.values()]
     .filter((b) => b.state === 'active' && !b.paused && b.workers.length < Math.min(b.jobSlots, b.def.jobs))
-    .sort((a, b) => (b.priority * 2 + autoPriority(g, b)) - (a.priority * 2 + autoPriority(g, a)));
+    .sort((a, b) => (b.priority * 2 + urgencyOf(b)) - (a.priority * 2 + urgencyOf(a)));
 
   for (const b of openings) {
     while (b.workers.length < Math.min(b.jobSlots, b.def.jobs) && free.length) {
@@ -88,6 +100,36 @@ export function reassign(g: Game): void {
 }
 
 /**
+ * The rungs `autoPriority` places a job on.
+ *
+ * Every rule returns `BAND.X + tiebreak`, where the tiebreak is under 1 and
+ * orders jobs *within* a rung. That is the whole point of naming them: adding
+ * a new kind of work (herders, militia) becomes "which rung, and where in it",
+ * rather than re-deriving a ladder of twenty-two loose decimals — which is
+ * what this was, and why nobody could safely add to it.
+ *
+ * The player's own 1-3 priority is added on top at double weight, so a
+ * deliberate choice can always outrank one rung of automatic urgency but
+ * never the gap between "idle" and "the village is starving".
+ */
+export const BAND = {
+  /** Nothing to do here: out of season, no inputs, nothing left in range. */
+  IDLE: 0.4,
+  /** Work with no particular claim on anyone. */
+  LOW: 1.0,
+  /** Ordinary craft: it matters, but not today. */
+  ROUTINE: 2.5,
+  /** Keeps the village turning — farm upkeep, spare porters. */
+  SUPPORT: 4.0,
+  /** Making the things households actually consume. */
+  PRODUCTION: 5.0,
+  /** Getting raw material out of the ground. Outranks what converts it. */
+  EXTRACTION: 6.0,
+  /** People go hungry or cold if this is not staffed now. */
+  URGENT: 7.5,
+} as const;
+
+/**
  * Ranking used when jobs are filled automatically: keep people fed and warm
  * before anyone is sent to carve pottery.
  */
@@ -104,66 +146,66 @@ export function autoPriority(g: Game, b: Building): number {
     const variety = b.sownCrop ? b.standingCrop : b.crop;
     const edible = RESOURCES[variety.out]?.food === true;
     const feeds = edible || (hasBuilding(g, 'mill') && hasBuilding(g, 'bakery'));
-    if (g.season === 'spring' && !b.sown) return feeds ? 6.6 : 4.2;
-    if (g.season === 'summer' && b.sown && b.growth < 1) return feeds ? 4.6 : 3.0;
-    if (g.season === 'autumn' && b.cropPool > 0.5) return feeds ? 6.6 : 4.2;
-    return 0.5;
+    if (g.season === 'spring' && !b.sown) return feeds ? BAND.EXTRACTION + 0.6 : BAND.SUPPORT + 0.2;
+    if (g.season === 'summer' && b.sown && b.growth < 1) return feeds ? BAND.SUPPORT + 0.6 : BAND.ROUTINE + 0.5;
+    if (g.season === 'autumn' && b.cropPool > 0.5) return feeds ? BAND.EXTRACTION + 0.6 : BAND.SUPPORT + 0.2;
+    return BAND.IDLE + 0.1;
   }
 
   // A workshop with nothing to work on is worse than useless: it holds staff
   // who should be upstream digging the input out of the ground. The same
   // goes for out-of-season work — a forager in January is two idle hands.
   if (d.recipe) {
-    if (d.recipe.seasons && !d.recipe.seasons.includes(g.season)) return 0.4;
+    if (d.recipe.seasons && !d.recipe.seasons.includes(g.season)) return BAND.IDLE;
     for (const k of Object.keys(d.recipe.in) as ResId[]) {
-      if (stockOf(g, k) + b.amount(k) < (d.recipe.in[k] ?? 0)) return 0.5;
+      if (stockOf(g, k) + b.amount(k) < (d.recipe.in[k] ?? 0)) return BAND.IDLE + 0.1;
     }
   }
   if (d.harvest) {
-    if (d.harvest.seasons && !d.harvest.seasons.includes(g.season)) return 0.4;
+    if (d.harvest.seasons && !d.harvest.seasons.includes(g.season)) return BAND.IDLE;
     if (!g.world.findNodes(
       Math.round(b.cx), Math.round(b.cy), d.harvest.kind, d.harvest.radius, 1,
-    ).length) return 0.4;
+    ).length) return BAND.IDLE;
   }
 
   // Extraction outranks the conversion that depends on it, and when the
   // larder is bare, gathering food outranks absolutely everything.
   if (d.harvest) {
-    if (RESOURCES[d.harvest.out]?.food) return foodDaysLeft(g) < 2.5 ? 7.8 : 6.2;
-    return 5.6;
+    if (RESOURCES[d.harvest.out]?.food) return foodDaysLeft(g) < 2.5 ? BAND.URGENT + 0.3 : BAND.EXTRACTION + 0.2;
+    return BAND.PRODUCTION + 0.6;
   }
   if (d.recipe) {
     const outs = Object.keys(d.recipe.out) as ResId[];
     if (outs.some((k) => RESOURCES[k]?.food)) {
-      const base = d.cat === 'farming' ? 5.4 : 5.0;
-      return foodDaysLeft(g) < 2.5 ? 7.6 : base;
+      const base = d.cat === 'farming' ? BAND.PRODUCTION + 0.4 : BAND.PRODUCTION;
+      return foodDaysLeft(g) < 2.5 ? BAND.URGENT + 0.1 : base;
     }
     if (outs.some((k) => RESOURCES[k]?.fuel)) {
       // Firewood is existential once the cold comes, so a thin woodpile
       // outranks almost everything else. Otherwise it is ordinary work.
       const perDay = g.population * TUNING.fuelPerDay * TUNING.fuelSeason[g.season];
-      if (totalOf(g, 'firewood') < perDay * 4) return 6.0;
-      return 4.6;
+      if (totalOf(g, 'firewood') < perDay * 4) return BAND.EXTRACTION;
+      return BAND.SUPPORT + 0.6;
     }
-    if (d.cat === 'farming') return 4.0;
-    return 2.5;
+    if (d.cat === 'farming') return BAND.SUPPORT;
+    return BAND.ROUTINE;
   }
-  if (d.plants) return 3.0;
+  if (d.plants) return BAND.ROUTINE + 0.5;
   if (d.service?.kind === 'market') {
     // A bare stall is the most urgent job in the village: every household
     // shops here, and nothing else matters if they cannot eat.
     const homes = homesServedBy(g, b);
     const heads = homes.reduce((n, h) => n + h.residents.length, 0);
     const food = FOOD_TYPES.reduce((t, f) => t + b.amount(f), 0);
-    if (heads > 0 && food < heads * TUNING.foodPerDay * 1.5) return 7.5;
-    return 5.8;
+    if (heads > 0 && food < heads * TUNING.foodPerDay * 1.5) return BAND.URGENT;
+    return BAND.PRODUCTION + 0.8;
   }
   if (d.cat === 'logistics') {
     // When finished goods are stacking up in workshops, porters matter more
     // than anything else in the village.
-    return backlog(g) > 60 ? 6.5 : 4.4;
+    return backlog(g) > 60 ? BAND.EXTRACTION + 0.5 : BAND.SUPPORT + 0.4;
   }
-  return 1;
+  return BAND.LOW;
 }
 
 /** How many days the village could eat for on what is in store. */

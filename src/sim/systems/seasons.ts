@@ -7,7 +7,7 @@
 import { FOOD_TYPES, type Season } from '../defs';
 import type { Game } from '../game';
 import { stockOf, takeFromStores } from './inventory';
-import { autoPriority } from './labour';
+import { BAND, autoPriority } from './labour';
 import { hasBuilding } from './placement';
 
 export function seasonTick(g: Game, prev: Season): void {
@@ -17,7 +17,8 @@ export function seasonTick(g: Game, prev: Season): void {
   if (g.autoAssign) {
     for (const b of g.buildings.values()) {
       if (b.state !== 'active' || !b.workers.length) continue;
-      if (autoPriority(g, b) < 1) {
+      // Anything that has fallen into the IDLE band is out of season now.
+      if (autoPriority(g, b) < BAND.LOW) {
         for (const id of b.workers) {
           const v = g.villagers.get(id);
           if (v) { v.jobId = -1; v.releaseAll(g); }
