@@ -27,6 +27,19 @@ export function recomputeAlerts(g: Game): void {
     a.push({ id: 'fuel', text: 'No firewood at all — build a woodshed before winter', severity: 'warn' });
   }
 
+  // Rot outpacing a quarter of what the village eats is a storage problem,
+  // not bad luck. spoiledToday accumulates through the day, so this fires
+  // late in a bad day and clears at midnight — good enough for a warning lamp.
+  let spoiled = 0;
+  for (const k in g.stats.spoiledToday) spoiled += g.stats.spoiledToday[k as ResId] ?? 0;
+  if (spoiled > g.population * TUNING.foodPerDay * 0.25) {
+    a.push({
+      id: 'spoilage',
+      text: hasBuilding(g, 'granary') ? 'Food is rotting far from the granary' : 'Food is rotting — build a granary',
+      severity: 'warn',
+    });
+  }
+
   if (g.homeless > 0) a.push({ id: 'homeless', text: `${g.homeless} villagers have no home`, severity: 'warn' });
   if (!hasBuilding(g, 'market') && g.population > 4) {
     a.push({ id: 'market', text: 'No market — homes cannot collect goods', severity: 'danger' });

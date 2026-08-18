@@ -1,12 +1,10 @@
 /**
  * The turn of the season: the workforce is reshuffled as crops and forage go
- * in and out of season, tax and upkeep settle, and food outside a granary
- * spoils. Four of these make a year.
+ * in and out of season, and tax and upkeep settle. Four of these make a year.
  */
 
-import { FOOD_TYPES, type Season } from '../defs';
+import type { Season } from '../defs';
 import type { Game } from '../game';
-import { stockOf, takeFromStores } from './inventory';
 import { BAND, autoPriority } from './labour';
 import { hasBuilding } from './placement';
 
@@ -61,13 +59,7 @@ export function seasonTick(g: Game, prev: Season): void {
     g.log('The treasury is empty. Upkeep is eating the village alive.', 'bad');
   }
 
-  // Food spoils slowly outside a granary.
-  const hasGranary = hasBuilding(g, 'granary');
-  if (!hasGranary) {
-    for (const f of FOOD_TYPES) {
-      const spoiled = stockOf(g, f) * 0.08;
-      if (spoiled > 0.5) takeFromStores(g, f, spoiled);
-    }
-  }
+  // Spoilage is per-building and daily now (systems/spoilage.ts) — a granary
+  // protects what is actually on its shelves, not every larder in the valley.
   void prev;
 }

@@ -40,6 +40,7 @@ import * as population from './systems/population';
 import * as trade from './systems/trade';
 import * as alerts from './systems/alerts';
 import type { Haul } from './systems/hauling';
+import { spoilFood } from './systems/spoilage';
 import { seasonTick } from './systems/seasons';
 import { setupStart } from './systems/founding';
 
@@ -65,6 +66,8 @@ export interface TradeState {
 export interface Stats {
   producedToday: Amounts;
   consumedToday: Amounts;
+  /** Food lost to rot, by type — the telemetry that makes spoilage tunable. */
+  spoiledToday: Amounts;
   coinHistory: number[];
   popHistory: number[];
   contentHistory: number[];
@@ -96,7 +99,7 @@ export class Game {
 
   trade: TradeState = { mod: {}, soldToday: {}, boughtToday: {} };
   stats: Stats = {
-    producedToday: {}, consumedToday: {},
+    producedToday: {}, consumedToday: {}, spoiledToday: {},
     coinHistory: [], popHistory: [], contentHistory: [],
     lastTax: 0, lastUpkeep: 0, lastTradeIncome: 0,
   };
@@ -152,6 +155,7 @@ export class Game {
    */
   flavourRng: RNG;
   lastLostWarning = -99;
+  lastSpoilWarning = -99;
 
   constructor(seed = Math.floor(Math.random() * 1e9), skipSetup = false) {
     this.seed = seed;
@@ -244,6 +248,7 @@ export class Game {
     population.birthsAndDeaths(this);
     population.immigration(this);
     families.reconcileFamilies(this);
+    spoilFood(this);
     trade.runTradeOrders(this);
     trade.decayTradePrices(this);
 
@@ -257,6 +262,7 @@ export class Game {
     }
     this.stats.producedToday = {};
     this.stats.consumedToday = {};
+    this.stats.spoiledToday = {};
   }
 
   // ------------------------------------------------------------- population

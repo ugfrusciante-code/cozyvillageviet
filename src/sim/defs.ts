@@ -27,6 +27,12 @@ export interface ResourceDef {
   fuel?: boolean;
   /** Comfort goods: raise contentment in tier 2+ homes. */
   luxury?: boolean;
+  /**
+   * How fast this rots when stored. Fraction lost per day in ordinary
+   * storage; a granary keeps most of it (see BuildingDef.preserves).
+   * Absent = does not spoil.
+   */
+  spoil?: number;
 }
 
 const R = (
@@ -48,14 +54,14 @@ export const RESOURCES: Record<ResId, ResourceDef> = Object.fromEntries(
 
     R('grain', 'Grain', '🌾', 'material', 6),
     R('flour', 'Flour', '🥣', 'material', 10),
-    R('bread', 'Bread', '🍞', 'food', 16, { food: true }),
-    R('berries', 'Berries', '🫐', 'food', 5, { food: true }),
-    R('fish', 'Fish', '🐟', 'food', 8, { food: true }),
-    R('meat', 'Meat', '🍖', 'food', 12, { food: true }),
-    R('eggs', 'Eggs', '🥚', 'food', 7, { food: true }),
+    R('bread', 'Bread', '🍞', 'food', 16, { food: true, spoil: 0.012 }),
+    R('berries', 'Berries', '🫐', 'food', 5, { food: true, spoil: 0.03 }),
+    R('fish', 'Fish', '🐟', 'food', 8, { food: true, spoil: 0.03 }),
+    R('meat', 'Meat', '🍖', 'food', 12, { food: true, spoil: 0.025 }),
+    R('eggs', 'Eggs', '🥚', 'food', 7, { food: true, spoil: 0.02 }),
     R('honey', 'Honey', '🍯', 'food', 14, { food: true }),
-    R('beans', 'Beans', '🫘', 'food', 9, { food: true }),
-    R('turnips', 'Turnips', '🥕', 'food', 6, { food: true }),
+    R('beans', 'Beans', '🫘', 'food', 9, { food: true, spoil: 0.006 }),
+    R('turnips', 'Turnips', '🥕', 'food', 6, { food: true, spoil: 0.008 }),
     R('herbs', 'Herbs', '🌿', 'material', 7),
 
     R('hide', 'Hides', '🟫', 'material', 9),
@@ -232,6 +238,12 @@ export interface BuildingDef {
   storage?: number;
   /** Only these resources may be stored here (granary vs storehouse). */
   storeOnly?: ResCat[];
+  /**
+   * Multiplier on food spoilage for goods stored here. The granary's whole
+   * reason to exist beyond raw capacity: 0.15 means bread rots six times
+   * slower on its shelves than on a market stall.
+   */
+  preserves?: number;
   /** Beauty radiated to nearby homes. */
   charm?: number;
   charmRadius?: number;
@@ -548,13 +560,13 @@ export const BUILDINGS: BuildingDef[] = [
     id: 'storehouse', name: 'Storehouse', cat: 'logistics', icon: '📦',
     desc: 'General goods store. Hauliers carry everything here from the workshops.',
     size: [3, 3], cost: { logs: 16, planks: 6 }, buildWork: 45, jobs: 2,
-    storage: 400, height: 2.4, palette: 'timber',
+    storage: 400, preserves: 0.5, height: 2.4, palette: 'timber',
   }),
   B({
     id: 'granary', name: 'Granary', cat: 'logistics', icon: '🌾',
     desc: 'Keeps food dry and rot-free. Food stored elsewhere spoils slowly.',
     size: [3, 3], cost: { logs: 18, planks: 10, stone: 4 }, buildWork: 55, jobs: 2,
-    storage: 500, storeOnly: ['food'], height: 2.8, palette: 'timber',
+    storage: 500, storeOnly: ['food'], preserves: 0.15, height: 2.8, palette: 'timber',
   }),
   B({
     id: 'tradepost', name: 'Trading Post', cat: 'logistics', icon: '⚖️',
