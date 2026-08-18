@@ -12,7 +12,6 @@ import { Building, setNextBuildingId, peekNextBuildingId } from './building';
 import { Family, setNextFamilyId, peekNextFamilyId } from './family';
 import { Villager, setNextVillagerId, peekNextVillagerId } from './villager';
 import { Game } from './game';
-import { NODE_KINDS } from './world';
 
 export const SAVE_VERSION = 3;
 export const SAVE_KEY = 'cozy-village/save';
@@ -80,7 +79,7 @@ interface SavedVillager {
 
 interface SavedFamily {
   id: number; surname: string; homeId: number; memberIds: number[];
-  founded: number; childrenBorn: number; generation: number;
+  founded: number; childrenBorn: number;
 }
 
 export interface SaveData {
@@ -184,7 +183,7 @@ export function serialize(g: Game, label = 'Manual save'): SaveData {
     families: [...g.families.values()].map((f) => ({
       id: f.id, surname: f.surname, homeId: f.homeId,
       memberIds: [...f.memberIds], founded: f.founded,
-      childrenBorn: f.childrenBorn, generation: f.generation,
+      childrenBorn: f.childrenBorn,
     })),
   };
 }
@@ -260,7 +259,7 @@ export function deserialize(data: SaveData): Game {
   for (const sf of data.families) {
     const f = new Family(sf.surname, sf.founded, sf.id);
     f.homeId = sf.homeId; f.memberIds = sf.memberIds;
-    f.childrenBorn = sf.childrenBorn; f.generation = sf.generation;
+    f.childrenBorn = sf.childrenBorn;
     g.families.set(f.id, f);
   }
 
@@ -277,14 +276,25 @@ export function deserialize(data: SaveData): Game {
     v.jobDestOverride = sv.jobDestOverride; v.lastPickupB = sv.lastPickupB;
     v.workTimer = sv.workTimer; v.skill = sv.skill; v.educated = sv.educated;
     v.health = sv.health; v.hasOx = sv.hasOx;
-    // Paths are not saved: everyone re-plans from where they stand.
+    // Paths are not saved: everyone re-plans from where they stand. That means
+    // EVERY walking state must be reset — `stepPath` treats an empty path as
+    // "arrived", so a hauler restored mid-trip would otherwise complete its
+    // pickup or drop-off instantly from wherever it happened to be standing.
+    //
+    // Abandoning the trip also means abandoning every claim it held: the
+    // reservation at the source, the pledge to the destination, and any tree
+    // or seam the villager had called dibs on. A claim held by a villager who
+    // is now idle would never be released.
     v.path = []; v.pathIdx = 0;
-    if (v.action === 'toWork' || v.action === 'toNode' || v.action === 'toHome'
-      || v.action === 'toSite' || v.action === 'wander') {
-      v.action = 'idle';
-    }
+    if (v.action !== 'sleeping' && v.action !== 'working') v.action = 'idle';
+    v.fetchRes = null;
+    v.fetchAmt = 0;
+    v.jobDestOverride = -1;
+    v.targetB = -1;
+    v.targetNode = -1;
+    // `carry` is deliberately kept: the goods are physically in their hands and
+    // will be re-delivered on the next tick.
     g.villagers.set(v.id, v);
-    if (v.targetNode >= 0) g.claimedNodes.add(v.targetNode);
   }
 
   setNextBuildingId(data.nextIds.building);

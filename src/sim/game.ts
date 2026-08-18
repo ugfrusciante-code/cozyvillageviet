@@ -45,7 +45,7 @@ export interface Stats {
   lastTradeIncome: number;
 }
 
-const SERVICE_KINDS: ServiceKind[] = ['water', 'faith', 'leisure', 'health', 'market', 'learning', 'warmth'];
+const SERVICE_KINDS: ServiceKind[] = ['water', 'faith', 'leisure', 'health', 'market', 'learning'];
 
 export class Game {
   world: World;
@@ -177,7 +177,9 @@ export class Game {
       store.jobSlots = 1;
       store.add('logs', 70); store.add('planks', 34); store.add('stone', 40);
       store.add('bread', 46); store.add('berries', 24); store.add('firewood', 30);
-      store.add('tools', 4); store.add('clothes', 6);
+      // Enough tools to sink a quarry AND a mine, so the iron chain is always
+      // reachable however the player sequences those two.
+      store.add('tools', 8); store.add('clothes', 6);
     }
     // The settlers arrive with a stall pitched and a well already sunk, so the
     // household supply loop is running from the first minute.
@@ -214,7 +216,7 @@ export class Game {
         if (!v) continue;
         v.familyId = fam.id;
         fam.memberIds.push(vid);
-        v.name = `${v.name.split(' ')[0]} ${fam.surname}`;
+        v.takeSurname(fam.surname);
       }
     }
 
@@ -1075,7 +1077,7 @@ export class Game {
           : (existing ?? this.foundFamily(best));
         v.familyId = fam.id;
         if (!fam.memberIds.includes(v.id)) fam.memberIds.push(v.id);
-        v.name = `${v.name.split(' ')[0]} ${fam.surname}`;
+        v.takeSurname(fam.surname);
       } else if (!best.familyIds.length) {
         const fam = this.families.get(v.familyId);
         if (fam) this.moveFamilyIn(fam, best);
@@ -1564,7 +1566,7 @@ export class Game {
         const baby = new Villager(home.cx, home.cy + 1, 0, () => this.rand());
         baby.homeId = home.id;
         baby.familyId = fam.id;
-        baby.name = `${baby.name.split(' ')[0]} ${fam.surname}`;
+        baby.takeSurname(fam.surname);
         fam.memberIds.push(baby.id);
         fam.childrenBorn++;
         home.residents.push(baby.id);
@@ -1644,7 +1646,7 @@ export class Game {
       }
       v.familyId = fam.id;
       fam.memberIds.push(v.id);
-      v.name = `${v.name.split(' ')[0]} ${fam.surname}`;
+      v.takeSurname(fam.surname);
       this.reassignPending = true;
       this.log(`${v.name} arrived looking for a home.`, 'good');
     }
@@ -1859,6 +1861,26 @@ export class Game {
     for (const b of this.buildings.values()) {
       b.workers = b.workers.filter((id) => this.villagers.get(id)?.jobId === b.id);
     }
+
+    // The reservation ledger is derived state, not saved state. Every trip was
+    // abandoned on load, so no goods are claimed or pledged: start from empty
+    // rather than trying to persist a two-sided bookkeeping structure that can
+    // only ever disagree with itself.
+    for (const b of this.buildings.values()) {
+      b.reservedOut = {};
+      b.incoming = {};
+    }
+    this.claimedNodes.clear();
+
+    // Oxen are counted, not owned: recount from who is actually holding one.
+    this.oxenInUse = 0;
+    const stabled = this.oxenTotal;
+    for (const v of this.villagers.values()) {
+      if (!v.hasOx) continue;
+      if (this.oxenInUse < stabled) this.oxenInUse++;
+      else v.hasOx = false; // stable was demolished under them
+    }
+
     this.recomputeAlerts();
     this.reassignPending = true;
   }
