@@ -43,6 +43,7 @@ import type { Haul } from './systems/hauling';
 import { spoilFood } from './systems/spoilage';
 import { checkMilestones } from './systems/milestones';
 import { raidTick, stepRaiders, type Raider } from './systems/raids';
+import { tinkerTick } from './systems/tinker';
 import { seasonTick } from './systems/seasons';
 import { setupStart } from './systems/founding';
 
@@ -145,6 +146,14 @@ export class Game {
   nextRaiderId = 1;
   /** What this raid has carried off so far, for the closing report. */
   raidLosses: Amounts = {};
+  /**
+   * True while the village has no tools in store: everyone works blunter and
+   * slower. Recomputed daily rather than per batch — stockOf is a scan, and
+   * a day's lag on picking up fresh tools is invisible at this timescale.
+   */
+  toolsShort = false;
+  /** Last day the wandering tinker came through, for his cooldown. */
+  lastTinkerDay = -99;
 
   /** The seed this valley was generated from — needed to rebuild it on load. */
   readonly seed: number;
@@ -270,6 +279,8 @@ export class Game {
     trade.decayTradePrices(this);
     checkMilestones(this);
     raidTick(this);
+    this.toolsShort = inventory.stockOf(this, 'tools') < 0.5;
+    tinkerTick(this);
 
     if (this.autoAssign) labour.reassign(this);
 

@@ -729,4 +729,12 @@ export const TUNING = {
   raidGraceDays: 48,
   /** Accrued threat (wealth/800 per day) that triggers a raid warning. */
   raidThreshold: 150,
+
+  // --- Tool wear. The field that turns the iron chain into a daily industry.
+  /** Tools consumed from the stores by one workshop batch. Gathering wears
+   * kit too little to model — and harvest cycles outnumber batches 10:1, so
+   * charging them the same rate bled villages dry in the first tuning. */
+  toolWear: 0.01,
+  /** Work-rate multiplier on workshops when the village has no tools at all. */
+  toolShortPenalty: 0.85,
 } as const;

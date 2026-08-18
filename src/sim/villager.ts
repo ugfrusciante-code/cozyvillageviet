@@ -10,6 +10,7 @@ import type { PathPoint } from './world';
 import {
   cancelHaulById, closeHaul, openDelivery, openHaul, pledgeTo, settleDelivery, settlePickup,
 } from './systems/hauling';
+import { takeFromStores } from './systems/inventory';
 import type { Codecs, Descriptor } from './persist';
 
 export type Action =
@@ -601,11 +602,18 @@ export class Villager {
     this.action = 'working';
     this.activity = `Making ${Object.keys(r.out).map((k) => RESOURCES[k as ResId].name.toLowerCase()).join(' & ')}`;
     b.status = 'Working';
-    const rate = this.workRate(g) * (b.def.cat === 'farming' ? 0.6 + b.fertility * 0.9 : 1);
+    let rate = this.workRate(g) * (b.def.cat === 'farming' ? 0.6 + b.fertility * 0.9 : 1);
+    // Blunt chisels, cracked hafts: a village with no tools left still works,
+    // just worse. The daily flag costs nothing here; see Game.toolsShort.
+    if (g.toolsShort) rate *= TUNING.toolShortPenalty;
     b.workAccum += dt * rate;
     b.activity = b.activity * 0.9 + 0.1;
     if (b.workAccum >= r.work) {
       b.workAccum -= r.work;
+      // Every batch wears the kit a little. This is what makes the iron chain
+      // a permanent industry instead of a one-time unlock: the blacksmith's
+      // output is consumed by everyone, every day.
+      takeFromStores(g, 'tools', TUNING.toolWear);
       for (const k in r.in) b.take(k as ResId, r.in[k as ResId] ?? 0);
       for (const k in r.out) {
         const res = k as ResId;
