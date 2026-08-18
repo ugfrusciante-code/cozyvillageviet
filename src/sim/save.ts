@@ -76,6 +76,9 @@ export interface SaveData {
   lostGoods: Record<string, number>;
   /** Absent in saves from before milestones existed; defaults to none. */
   milestones?: Record<string, number>;
+  /** Raid schedule. The walkers themselves are transient and re-form on load. */
+  raidThreat?: number;
+  raidAtDay?: number;
   startX: number; startY: number;
   nextIds: { building: number; villager: number; family: number };
   world: {
@@ -120,6 +123,8 @@ export function serialize(g: Game, label = 'Manual save'): SaveData {
     stats: g.stats,
     lostGoods: g.lostGoods as Record<string, number>,
     milestones: g.milestonesDone,
+    raidThreat: g.raidThreat,
+    raidAtDay: g.raidAtDay,
     startX: g.startX, startY: g.startY,
     nextIds: {
       building: peekNextBuildingId(),
@@ -188,6 +193,8 @@ export function deserialize(raw: SaveData): Game {
   g.stats = data.stats as Game['stats'];
   g.lostGoods = data.lostGoods ?? {};
   g.milestonesDone = data.milestones ?? {};
+  g.raidThreat = data.raidThreat ?? 0;
+  g.raidAtDay = data.raidAtDay ?? -1;
   g.startX = data.startX; g.startY = data.startY;
 
   // Buildings first: villagers and families reference them by id.

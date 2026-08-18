@@ -640,3 +640,25 @@ export function disposeObject(o: Object3D): void {
 }
 
 export { Vector3, Color };
+
+// ------------------------------------------------------------------ raiders
+
+/**
+ * A rider on foot: hooded, dark, deliberately unlike any villager silhouette.
+ * A handful at most walk the map at once, so these are plain meshes rather
+ * than instances.
+ */
+export function makeRaiderMesh(): Group {
+  const g = new Group();
+  const cloak = new Mesh(new ConeGeometry(0.34, 1.05, 7), mat(0x2e2a33, { flat: true }));
+  cloak.position.y = 0.55;
+  const hood = new Mesh(new SphereGeometry(0.17, 8, 6), mat(0x241f2b, { flat: true }));
+  hood.position.y = 1.08;
+  const sack = new Mesh(new SphereGeometry(0.16, 7, 5), mat(0x6b5136, { flat: true }));
+  sack.position.set(0, 0.78, -0.26);
+  sack.scale.set(1, 0.85, 0.8);
+  sack.name = 'sack';
+  sack.visible = false;
+  g.add(cloak, hood, sack);
+  return g;
+}

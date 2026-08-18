@@ -40,6 +40,17 @@ export function recomputeAlerts(g: Game): void {
     });
   }
 
+  if (g.raiders.length > 0) {
+    a.push({ id: 'raid', text: `Raiders in the village — ${g.raiders.length} of them`, severity: 'danger' });
+  } else if (g.raidAtDay >= 0) {
+    const days = g.raidAtDay - g.day;
+    a.push({
+      id: 'raid',
+      text: days > 0 ? `Riders on the road — here in ${days} day${days === 1 ? '' : 's'}` : 'Riders at the edge of the valley',
+      severity: 'danger',
+    });
+  }
+
   if (g.homeless > 0) a.push({ id: 'homeless', text: `${g.homeless} villagers have no home`, severity: 'warn' });
   if (!hasBuilding(g, 'market') && g.population > 4) {
     a.push({ id: 'market', text: 'No market — homes cannot collect goods', severity: 'danger' });

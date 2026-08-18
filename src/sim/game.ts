@@ -42,6 +42,7 @@ import * as alerts from './systems/alerts';
 import type { Haul } from './systems/hauling';
 import { spoilFood } from './systems/spoilage';
 import { checkMilestones } from './systems/milestones';
+import { raidTick, stepRaiders, type Raider } from './systems/raids';
 import { seasonTick } from './systems/seasons';
 import { setupStart } from './systems/founding';
 
@@ -134,6 +135,17 @@ export class Game {
   /** Milestone id -> the day it was reached. The sandbox's chronicle of firsts. */
   milestonesDone: Record<string, number> = {};
 
+  // --- Raids (systems/raids.ts). The schedule is saved; the walkers are not.
+  /** Accrued appetite for this village's wealth. Resets after each raid. */
+  raidThreat = 0;
+  /** Day a scheduled raid arrives, or -1. The warning goes out when it is set. */
+  raidAtDay = -1;
+  /** The band currently on the map. Transient, like hauls. */
+  raiders: Raider[] = [];
+  nextRaiderId = 1;
+  /** What this raid has carried off so far, for the closing report. */
+  raidLosses: Amounts = {};
+
   /** The seed this valley was generated from — needed to rebuild it on load. */
   readonly seed: number;
 
@@ -213,6 +225,8 @@ export class Game {
       this.pendingExtras.length = 0;
     }
 
+    stepRaiders(this, dt);
+
     // Decay activity meters so idle buildings read as idle.
     for (const b of this.buildings.values()) b.activity *= 1 - dt * 0.25;
 
@@ -255,6 +269,7 @@ export class Game {
     trade.runTradeOrders(this);
     trade.decayTradePrices(this);
     checkMilestones(this);
+    raidTick(this);
 
     if (this.autoAssign) labour.reassign(this);
 

@@ -20,7 +20,7 @@ import { View } from './render/view';
 import {
   disposeObject, makeBuildingMesh, makeGhost, updateBuildingVisual,
   type BuildingVisual,
-} from './render/entities';
+ makeRaiderMesh } from './render/entities';
 import { VillagerRenderer } from './render/villagers';
 import { UI } from './ui/ui';
 
@@ -504,6 +504,28 @@ let uiTimer = 0;
 let nightGlow = 0;
 let treeCheck = 0;
 
+// The band on the map, if any. A handful of plain meshes, keyed by raider id.
+const raiderVisuals = new Map<number, ReturnType<typeof makeRaiderMesh>>();
+function syncRaiders(): void {
+  const seen = new Set<number>();
+  for (const r of game.raiders) {
+    seen.add(r.id);
+    let m = raiderVisuals.get(r.id);
+    if (!m) {
+      m = makeRaiderMesh();
+      view.scene.add(m);
+      raiderVisuals.set(r.id, m);
+    }
+    m.position.set(r.x, game.world.heightAt(r.x, r.y), r.y);
+    m.rotation.y = r.facing;
+    const sack = m.getObjectByName('sack');
+    if (sack) sack.visible = !!r.carry;
+  }
+  for (const [id, m] of raiderVisuals) {
+    if (!seen.has(id)) { view.scene.remove(m); raiderVisuals.delete(id); }
+  }
+}
+
 function frame(now: number): void {
   const dt = Math.min(0.1, (now - last) / 1000);
   last = now;
@@ -519,6 +541,7 @@ function frame(now: number): void {
   view.update(dt);
   syncBuildings();
   syncVillagers(dt);
+  syncRaiders();
   syncGhost();
 
   // Hover tooltips over buildings and villagers.

@@ -723,4 +723,10 @@ export const TUNING = {
   fertilityRegen: 0.0025,
   /** Passive crop growth per summer day (sun and rain do some of the work). */
   passiveGrowth: 0.05,
+
+  // --- Raids. Threat accrues with visible wealth; see systems/raids.ts.
+  /** Three whole years before anyone thinks the valley worth robbing. */
+  raidGraceDays: 48,
+  /** Accrued threat (wealth/800 per day) that triggers a raid warning. */
+  raidThreshold: 150,
 } as const;
