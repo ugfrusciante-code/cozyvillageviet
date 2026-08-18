@@ -32,6 +32,20 @@ const HEADLINE_RES: ResId[] = [
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 
+/**
+ * Wire a click if the element exists; say so once if it does not.
+ *
+ * The markup and this file do not always move in the same commit — a UI
+ * rework lands its HTML before its wiring, and one missing button must not
+ * take the whole boot down with "cannot set onclick of null". A warning names
+ * the orphan; everything else keeps working.
+ */
+const on = (id: string, fn: (ev: MouseEvent) => void): void => {
+  const el = document.getElementById(id);
+  if (el) el.onclick = fn;
+  else console.warn(`[ui] no #${id} in the markup — its action is unwired`);
+};
+
 export interface UICallbacks {
   onSelectBuildDef(defId: string | null): void;
   onDemolish(id: number): void;
@@ -70,31 +84,31 @@ export class UI {
   // ------------------------------------------------------------------ wiring
 
   private wire(): void {
-    $('insp-close').onclick = () => this.clearSelection();
-    $('trade-close').onclick = () => this.closeTrade();
-    $('people-close').onclick = () => this.closePeople();
-    $('help-close').onclick = () => $('help').classList.add('hidden');
-    $('btn-help').onclick = () => $('help').classList.toggle('hidden');
+    on('insp-close', () => this.clearSelection());
+    on('trade-close', () => this.closeTrade());
+    on('people-close', () => this.closePeople());
+    on('help-close', () => $('help').classList.add('hidden'));
+    on('btn-help', () => $('help').classList.toggle('hidden'));
 
-    $('btn-ledger').onclick = () => {
+    on('btn-ledger', () => {
       this.ledgerOpen = !this.ledgerOpen;
       $('ledger').classList.toggle('hidden', !this.ledgerOpen);
       if (this.ledgerOpen) { this.ledgerDrawn = 0; this.renderLedger(); }
-    };
-    $('ledger-close').onclick = () => { this.ledgerOpen = false; $('ledger').classList.add('hidden'); };
+    });
+    on('ledger-close', () => { this.ledgerOpen = false; $('ledger').classList.add('hidden'); });
 
-    $('btn-menu').onclick = () => {
+    on('btn-menu', () => {
       $('menu-status').textContent = this.cb.saveStatus();
       $('menu').classList.toggle('hidden');
-    };
-    $('menu-close').onclick = () => $('menu').classList.add('hidden');
-    $('menu-save').onclick = () => { this.cb.onSave(); $('menu-status').textContent = this.cb.saveStatus(); };
-    $('menu-load').onclick = () => this.cb.onLoad();
-    $('menu-export').onclick = () => this.cb.onExport();
+    });
+    on('menu-close', () => $('menu').classList.add('hidden'));
+    on('menu-save', () => { this.cb.onSave(); $('menu-status').textContent = this.cb.saveStatus(); });
+    on('menu-load', () => this.cb.onLoad());
+    on('menu-export', () => this.cb.onExport());
     // Destructive, so it asks twice: the first click arms the button, the
     // second within a few seconds actually starts over.
     let armedAt = 0;
-    $('menu-new').onclick = () => {
+    on('menu-new', () => {
       const btn = $('menu-new');
       if (performance.now() - armedAt < 4000) {
         btn.textContent = 'Start a new village';
@@ -105,12 +119,15 @@ export class UI {
       armedAt = performance.now();
       btn.textContent = 'Click again to abandon this village';
       setTimeout(() => { if (performance.now() - armedAt >= 4000) btn.textContent = 'Start a new village'; }, 4200);
-    };
-    $('menu-import').onclick = () => ($('menu-file') as HTMLInputElement).click();
-    ($('menu-file') as HTMLInputElement).onchange = (e) => {
-      const f = (e.target as HTMLInputElement).files?.[0];
-      if (f) this.cb.onImport(f);
-    };
+    });
+    on('menu-import', () => ($('menu-file') as HTMLInputElement).click());
+    const fileInput = document.getElementById('menu-file') as HTMLInputElement | null;
+    if (fileInput) {
+      fileInput.onchange = (e) => {
+        const f = (e.target as HTMLInputElement).files?.[0];
+        if (f) this.cb.onImport(f);
+      };
+    }
 
     for (const el of $('overlays').querySelectorAll('button')) {
       (el as HTMLElement).onclick = () => {
