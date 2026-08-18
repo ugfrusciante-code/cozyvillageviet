@@ -12,7 +12,7 @@ import type { Building } from '../building';
 import type { Game } from '../game';
 import { backlog, stockOf, totalOf } from './inventory';
 import { hasBuilding } from './placement';
-import { homesServedBy } from './services';
+import { residentsServedBy } from './services';
 
 /** Reconcile workers against the job slots the player has opened. */
 export function reassign(g: Game): void {
@@ -194,8 +194,7 @@ export function autoPriority(g: Game, b: Building): number {
   if (d.service?.kind === 'market') {
     // A bare stall is the most urgent job in the village: every household
     // shops here, and nothing else matters if they cannot eat.
-    const homes = homesServedBy(g, b);
-    const heads = homes.reduce((n, h) => n + h.residents.length, 0);
+    const heads = residentsServedBy(g, b);
     const food = FOOD_TYPES.reduce((t, f) => t + b.amount(f), 0);
     if (heads > 0 && food < heads * TUNING.foodPerDay * 1.5) return BAND.URGENT;
     return BAND.PRODUCTION + 0.8;

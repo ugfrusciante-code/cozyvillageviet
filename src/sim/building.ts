@@ -272,25 +272,22 @@ export class Building {
   /** Labour to raise this instance. */
   get buildWorkTotal(): number { return this.def.buildWork * Math.max(1, this.sizeFactor); }
 
-  /** Materials still owed to the site. */
-  missingMaterials(): Amounts {
+  /**
+   * Materials this site is still short of.
+   *
+   * The default subtracts what is already on a haulier's back, which is what a
+   * villager deciding whether to fetch more needs to know — otherwise five
+   * people all set off with the same last eight planks. `'delivered'` counts
+   * only what has physically arrived, which is what belongs on the panel: a
+   * progress bar that fills when carts are *dispatched* would be lying.
+   */
+  materialsOwed(counting: 'pledged' | 'delivered' = 'pledged'): Amounts {
     const cost = this.buildCost();
     const out: Amounts = {};
     for (const k in cost) {
       const res = k as ResId;
-      const need = (cost[res] ?? 0) - (this.delivered[res] ?? 0);
-      if (need > 0.001) out[res] = need;
-    }
-    return out;
-  }
-
-  /** Materials still owed, minus anything already on a haulier's back. */
-  outstandingMaterials(): Amounts {
-    const cost = this.buildCost();
-    const out: Amounts = {};
-    for (const k in cost) {
-      const res = k as ResId;
-      const need = (cost[res] ?? 0) - (this.delivered[res] ?? 0) - (this.incoming[res] ?? 0);
+      const pledged = counting === 'pledged' ? (this.incoming[res] ?? 0) : 0;
+      const need = (cost[res] ?? 0) - (this.delivered[res] ?? 0) - pledged;
       if (need > 0.001) out[res] = need;
     }
     return out;

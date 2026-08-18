@@ -83,7 +83,7 @@ export function marketsShortOfGoods(g: Game): Building[] {
   const out: Building[] = [];
   for (const m of g.serviceIndex.get('market') ?? []) {
     if (m.state !== 'active') continue;
-    const heads = homesServedBy(g, m).reduce((n, h) => n + h.residents.length, 0);
+    const heads = residentsServedBy(g, m);
     if (heads === 0) continue;
     const food = FOOD_TYPES.reduce((t, f) => t + m.amount(f) + (m.incoming[f] ?? 0), 0);
     const fuel = m.amount('firewood') + (m.incoming.firewood ?? 0);
@@ -92,8 +92,9 @@ export function marketsShortOfGoods(g: Game): Building[] {
   return out;
 }
 
+/** Every home inside this service's radius. */
 export function homesServedBy(g: Game, m: Building): Building[] {
-  const r = m.def.service!.radius;
+  const r = m.def.service?.radius ?? 0;
   const out: Building[] = [];
   for (const b of g.buildings.values()) {
     if (b.state !== 'active' || !b.isHouse) continue;
@@ -102,12 +103,17 @@ export function homesServedBy(g: Game, m: Building): Building[] {
   return out;
 }
 
-export function homesServedBy2(g: Game, b: Building): number {
-  const r = b.def.service?.radius ?? 0;
+/**
+ * How many people it serves, rather than how many roofs.
+ *
+ * Both counts are wanted, which is why this used to be a second copy of the
+ * scan called `homesServedBy2`. Food is eaten per head and fuel is burned per
+ * household, so getting these two the wrong way round is a real bug — worth
+ * one honest name each.
+ */
+export function residentsServedBy(g: Game, m: Building): number {
   let n = 0;
-  for (const h of g.buildings.values()) {
-    if (h.state === 'active' && h.isHouse && Math.hypot(h.cx - b.cx, h.cy - b.cy) <= r) n += h.residents.length;
-  }
+  for (const h of homesServedBy(g, m)) n += h.residents.length;
   return n;
 }
 
@@ -118,7 +124,7 @@ export function consumeServiceGoods(g: Game): void {
     const s = b.def.service;
     const consumes = s?.consumes;
     if (!s || !consumes) continue;
-    const served = homesServedBy2(g, b);
+    const served = residentsServedBy(g, b);
     b.serving = served;
     const perHour = (s.rate ?? 0.1) * served / TUNING.hoursPerDay;
     for (const res of consumes) {

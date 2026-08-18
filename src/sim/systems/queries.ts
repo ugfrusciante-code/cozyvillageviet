@@ -59,20 +59,35 @@ export function findDestination(g: Game, res: ResId, x: number, y: number, amt: 
   return best;
 }
 
-/** A workshop with finished goods a porter from `home` should collect. */
-export function findPorterPickup(g: Game, home: Building, x: number, y: number): { from: Building; res: ResId; amt: number; avail: number } | null {
-  let best: { from: Building; res: ResId; amt: number; avail: number } | null = null;
+/** A workshop with goods waiting for someone to carry them away. */
+export interface Pickup { from: Building; res: ResId; amt: number; avail: number }
+
+/**
+ * Find the most worthwhile load sitting in a workshop.
+ *
+ * Storage workers and idle labourers both do this, and used to do it through
+ * two copies of the same scan that differed only in three numbers. They still
+ * differ in those three: a porter will cross the village for a decent load
+ * (`minAmount` 6, distance barely discounted) while a spare pair of hands only
+ * bothers with what is close (`minAmount` 3, distance weighted half again).
+ * Now that is visible as three arguments rather than buried in a near-copy.
+ */
+function findPickup(
+  g: Game, x: number, y: number,
+  minAmount: number, distanceWeight: number, excludeId = -1,
+): Pickup | null {
+  let best: Pickup | null = null;
   let bestScore = -Infinity;
   for (const b of g.buildings.values()) {
-    if (b.state !== 'active' || b.isStorage || b.id === home.id) continue;
-    if (b.def.service || b.isHouse) continue;
+    if (b.state !== 'active' || b.isStorage || b.isHouse) continue;
+    if (b.id === excludeId || b.def.service) continue;
     const out = b.outputStock();
     for (const k in out) {
       const res = k as ResId;
       const amt = b.available(res);
-      if (amt < 6) continue;
+      if (amt < minAmount) continue;
       const d = Math.hypot(b.cx - x, b.cy - y);
-      const score = amt * 2 - d;
+      const score = amt * 2 - d * distanceWeight;
       if (score > bestScore) {
         bestScore = score;
         best = { from: b, res, amt: Math.min(amt, TUNING.carryCapacity), avail: amt };
@@ -82,28 +97,14 @@ export function findPorterPickup(g: Game, home: Building, x: number, y: number):
   return best;
 }
 
-/** Same, but for spare labourers, with a lower trigger. */
-export function findAnyPickup(g: Game, x: number, y: number): { from: Building; res: ResId; amt: number; avail: number } | null {
-  let best: { from: Building; res: ResId; amt: number; avail: number } | null = null;
-  let bestScore = -Infinity;
-  for (const b of g.buildings.values()) {
-    if (b.state !== 'active' || b.isStorage || b.isHouse) continue;
-    if (b.def.service && b.def.service.kind !== 'market') continue;
-    if (b.def.service?.kind === 'market') continue;
-    const out = b.outputStock();
-    for (const k in out) {
-      const res = k as ResId;
-      const amt = b.available(res);
-      if (amt < 3) continue;
-      const d = Math.hypot(b.cx - x, b.cy - y);
-      const score = amt * 2 - d * 1.5;
-      if (score > bestScore) {
-        bestScore = score;
-        best = { from: b, res, amt: Math.min(amt, TUNING.carryCapacity), avail: amt };
-      }
-    }
-  }
-  return best;
+/** What a porter working out of `home` should go and collect. */
+export function findPorterPickup(g: Game, home: Building, x: number, y: number): Pickup | null {
+  return findPickup(g, x, y, 6, 1, home.id);
+}
+
+/** Same, for spare labourers: a lower trigger, but they will not walk as far. */
+export function findAnyPickup(g: Game, x: number, y: number): Pickup | null {
+  return findPickup(g, x, y, 3, 1.5);
 }
 
 export function nearestSiteNeedingWork(g: Game, x: number, y: number): Building | undefined {

@@ -44,7 +44,7 @@ export function recomputeAlerts(g: Game): void {
   const blocked = new Set<string>();
   for (const b of g.buildings.values()) {
     if (b.state === 'active' || b.paused || b.materialsComplete()) continue;
-    for (const k of Object.keys(b.outstandingMaterials()) as ResId[]) {
+    for (const k of Object.keys(b.materialsOwed()) as ResId[]) {
       if (totalOf(g, k) < 1) blocked.add(RESOURCES[k].name);
     }
   }

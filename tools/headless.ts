@@ -47,7 +47,7 @@ console.log(`buildings: ${g.buildings.size}, villagers: ${g.villagers.size}`);
 for (const b of g.buildings.values()) {
   console.log(
     `  #${b.id} ${b.name.padEnd(18)} ${b.state.padEnd(9)} ` +
-    `mat=${JSON.stringify(b.delivered)} need=${JSON.stringify(b.outstandingMaterials())} ` +
+    `mat=${JSON.stringify(b.delivered)} need=${JSON.stringify(b.materialsOwed())} ` +
     `prog=${b.buildProgress.toFixed(0)}/${b.def.buildWork} jobs=${b.workers.length}/${b.jobSlots} ` +
     `store=${JSON.stringify(b.store)} status="${b.status}"`,
   );

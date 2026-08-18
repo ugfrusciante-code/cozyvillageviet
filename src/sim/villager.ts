@@ -936,7 +936,7 @@ export class Villager {
     if (!site) return false;
 
     if (!site.materialsComplete()) {
-      const owed = site.outstandingMaterials();
+      const owed = site.materialsOwed();
       for (const k in owed) {
         const res = k as ResId;
         const need = owed[res] ?? 0;

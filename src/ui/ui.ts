@@ -446,7 +446,7 @@ export class UI {
       const pct = Math.round(b.buildFraction * 100);
       out.push('<div class="section">Under construction</div>');
       if (d.zone) out.push(`<div class="row"><span>Plot</span><b>${b.w}×${b.h} (${b.area} tiles)</b></div>`);
-      const owed = b.missingMaterials();
+      const owed = b.materialsOwed('delivered');
       const owedList = Object.entries(owed)
         .map(([k, v]) => `<span class="chip no">${RESOURCES[k as ResId].icon} ${Math.ceil(v as number)} ${RESOURCES[k as ResId].name}</span>`)
         .join('');
