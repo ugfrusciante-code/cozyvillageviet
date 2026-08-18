@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+    <title>Cozy Village</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🏡</text></svg>" />
+    <link rel="stylesheet" href="/src/ui/style.css" />
+  </head>
+  <body>
+    <canvas id="stage"></canvas>
+
+    <div id="vignette"></div>
+
+    <!-- Top bar -->
+    <header id="topbar">
+      <div class="pill" id="clock">
+        <span class="season-dot" id="season-dot"></span>
+        <div class="stack">
+          <strong id="date-line">Spring · Year 1</strong>
+          <span class="sub" id="time-line">Day 1 · 06:00</span>
+        </div>
+      </div>
+
+      <div class="pill speeds" id="speeds"></div>
+
+      <div class="spacer"></div>
+
+      <div class="pill stats" id="stats"></div>
+
+      <div class="pill ghost-btn" id="btn-menu" title="Save, load, new village">☰</div>
+      <div class="pill ghost-btn" id="btn-help" title="Controls">?</div>
+    </header>
+
+    <!-- Resource strip -->
+    <div id="resbar"></div>
+
+    <!-- Alerts -->
+    <div id="alerts"></div>
+
+    <!-- Bottom-centre build bar -->
+    <nav id="buildbar">
+      <div id="buildflyout" class="hidden">
+        <div id="flyout-grid"></div>
+        <div id="flyout-hint" class="hint"></div>
+      </div>
+      <div id="buildcats"></div>
+    </nav>
+
+    <!-- Minimap + overlays -->
+    <div id="mapdock">
+      <div id="overlays">
+        <button data-ov="none" class="on" title="Plain ground">🗺</button>
+        <button data-ov="fertility" title="Soil fertility">🌱</button>
+        <button data-ov="charm" title="Charm">🌷</button>
+      </div>
+      <canvas id="minimap" width="192" height="192"></canvas>
+    </div>
+
+    <!-- Inspector -->
+    <aside id="inspector" class="hidden">
+      <div class="panel-head">
+        <h2 id="insp-title">—</h2>
+        <button class="icon-btn" id="insp-close" title="Close">×</button>
+      </div>
+      <div id="insp-body"></div>
+    </aside>
+
+    <!-- Hover tooltip -->
+    <div id="tooltip" class="hidden"></div>
+
+    <!-- Live size readout while dragging out a field/pasture/orchard -->
+    <div id="dragsize" class="hidden"></div>
+
+    <!-- Autosave flash -->
+    <div id="savetoast" class="hidden">Saved</div>
+
+    <!-- Event log -->
+    <div id="log"></div>
+
+    <!-- Trade modal -->
+    <div id="trade" class="modal hidden">
+      <div class="modal-card">
+        <div class="panel-head">
+          <h2>Trading Post</h2>
+          <button class="icon-btn" id="trade-close">×</button>
+        </div>
+        <p class="hint">
+          Prices move against you as you flood or drain a market, then drift back over days.
+          Standing orders run once a day: <b>sell&nbsp;›</b> sells everything above the number,
+          <b>buy&nbsp;‹</b> tops the store up to it. Leave blank to do nothing.
+        </p>
+        <div id="trade-list"></div>
+      </div>
+    </div>
+
+    <!-- People modal -->
+    <div id="people" class="modal hidden">
+      <div class="modal-card">
+        <div class="panel-head">
+          <h2>Villagers</h2>
+          <button class="icon-btn" id="people-close">×</button>
+        </div>
+        <div id="people-list"></div>
+      </div>
+    </div>
+
+    <!-- Menu: save / load / new -->
+    <div id="menu" class="modal hidden">
+      <div class="modal-card narrow">
+        <div class="panel-head">
+          <h2>Village</h2>
+          <button class="icon-btn" id="menu-close">×</button>
+        </div>
+        <div class="menu-body">
+          <p class="hint" id="menu-status">Your village saves itself as you play, and picks up where you left off when you come back.</p>
+          <div class="menu-grid">
+            <button class="btn primary" id="menu-save">Save now</button>
+            <button class="btn" id="menu-load">Load save</button>
+            <button class="btn" id="menu-export">Export to file</button>
+            <button class="btn" id="menu-import">Import from file</button>
+            <button class="btn danger" id="menu-new">Start a new village</button>
+          </div>
+          <input type="file" id="menu-file" accept="application/json" class="hidden" />
+        </div>
+      </div>
+    </div>
+
+    <!-- Help -->
+    <div id="help" class="modal hidden">
+      <div class="modal-card">
+        <div class="panel-head">
+          <h2>How to play</h2>
+          <button class="icon-btn" id="help-close">×</button>
+        </div>
+        <div class="help-body">
+          <h3>Camera</h3>
+          <p><b>Drag</b> with the left or right mouse button, or <b>WASD</b>, to pan · <b>Q / E</b> or middle-drag to rotate · <b>scroll</b> to zoom · click the <b>minimap</b> to jump.</p>
+          <h3>Building</h3>
+          <p>Pick from the bar at the bottom, then click the ground. <b>R</b> rotates. Hold <b>Shift</b> to keep placing. <b>Esc</b> or right-click cancels. Roads are drawn by dragging. <b>Fields, pastures and orchards are drag-drawn</b>: press, drag out the plot you want, release.</p>
+          <h3>The loop</h3>
+          <p>
+            Gatherers stock their own huts. Porters and idle labourers carry goods onward.
+            Market workers stock the stalls, and every household shops at the nearest stall.
+            A home that receives enough <b>food variety, fuel, clothing, water, faith, ale and beauty</b>
+            upgrades, houses more families, and pays more tax.
+          </p>
+          <h3>Farming</h3>
+          <p>Fields are sown in spring, tended in summer, and reaped in autumn — an unreaped crop freezes in the field. Farming the same ground tires the soil (toggle the 🌱 overlay); rest it or move the field.</p>
+          <h3>Economy tools</h3>
+          <p>Select a workshop to cap its output or raise its priority. Select a building to see its supply lines. The Trading Post takes standing sell/buy orders.</p>
+          <h3>Survival</h3>
+          <p>Winter burns four times the firewood and stops the foragers. Get a hunter, a fishery or a farm running before the first snow, and build a granary so food stops spoiling.</p>
+        </div>
+      </div>
+    </div>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
