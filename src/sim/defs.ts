@@ -198,6 +198,9 @@ export interface Farmable {
 
 export type ServiceKind = 'water' | 'faith' | 'leisure' | 'health' | 'market' | 'learning';
 
+/** Every service kind, in the order homes are scored on them. */
+export const SERVICE_KINDS: ServiceKind[] = ['water', 'faith', 'leisure', 'health', 'market', 'learning'];
+
 export interface Service {
   kind: ServiceKind;
   radius: number;
