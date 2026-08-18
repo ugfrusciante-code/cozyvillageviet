@@ -31,14 +31,34 @@
       "derived": "4974ef7a"
     },
     "d150": {
-      "all": "553c4cb0",
-      "clock": "7ddcd3c9",
-      "economy": "d4beffc3",
+      "all": "7da05378",
+      "clock": "bfe8b120",
+      "economy": "20654070",
       "world": "decb06d7",
-      "buildings": "1cc5a932",
-      "villagers": "52c8e875",
+      "buildings": "0f01e818",
+      "villagers": "4ecf40ee",
       "families": "2770b0a3",
-      "derived": "c729a31f"
+      "derived": "356d6ad0"
+    },
+    "d250": {
+      "all": "02dc8109",
+      "clock": "bf8a42b6",
+      "economy": "4bc0ecb4",
+      "world": "b4b1e194",
+      "buildings": "60f29c84",
+      "villagers": "96b386dd",
+      "families": "2770b0a3",
+      "derived": "e2739969"
+    },
+    "d400": {
+      "all": "244b4257",
+      "clock": "21fce58a",
+      "economy": "cac06e3d",
+      "world": "fafa7a90",
+      "buildings": "6714bfc2",
+      "villagers": "ac7d0a19",
+      "families": "09e5c8a4",
+      "derived": "38d8254e"
     }
   },
   "4242": {
@@ -73,14 +93,34 @@
       "derived": "7b197347"
     },
     "d150": {
-      "all": "e53f0acc",
-      "clock": "e2f35df6",
-      "economy": "7329d8e7",
+      "all": "192ee9cb",
+      "clock": "6935d943",
+      "economy": "cee27067",
       "world": "92e6f90b",
-      "buildings": "721892f8",
-      "villagers": "f4df70e6",
+      "buildings": "39ec73df",
+      "villagers": "dc7e0f1b",
       "families": "c63ab790",
-      "derived": "3c1014c7"
+      "derived": "54d3f44d"
+    },
+    "d250": {
+      "all": "9d8c93da",
+      "clock": "99150ba1",
+      "economy": "54e5d7c8",
+      "world": "dfe9f2ed",
+      "buildings": "22d60c7d",
+      "villagers": "59472f1f",
+      "families": "c63ab790",
+      "derived": "f748ff7d"
+    },
+    "d400": {
+      "all": "19fa6a77",
+      "clock": "f9ff8cd8",
+      "economy": "8f7e8494",
+      "world": "10e512e7",
+      "buildings": "7c40ab09",
+      "villagers": "36f1ebb2",
+      "families": "11135b0d",
+      "derived": "bd96f446"
     }
   },
   "20260817": {
@@ -115,14 +155,34 @@
       "derived": "a02a93f8"
     },
     "d150": {
-      "all": "296768d6",
-      "clock": "dad0b1cd",
-      "economy": "85586eea",
+      "all": "68d2e3ac",
+      "clock": "92119583",
+      "economy": "7599a518",
       "world": "c91e2112",
-      "buildings": "bef86c05",
-      "villagers": "b265b250",
+      "buildings": "97369490",
+      "villagers": "3e4c79ba",
       "families": "839eb706",
-      "derived": "ef1587c3"
+      "derived": "a82156d2"
+    },
+    "d250": {
+      "all": "7e191b5e",
+      "clock": "cf83d5a0",
+      "economy": "0d5cb9a3",
+      "world": "a59e1515",
+      "buildings": "7d7a6666",
+      "villagers": "e3f6708b",
+      "families": "19cf6628",
+      "derived": "98c325a2"
+    },
+    "d400": {
+      "all": "f5924151",
+      "clock": "aabd9790",
+      "economy": "21389277",
+      "world": "47c0855c",
+      "buildings": "26f824c7",
+      "villagers": "fd00bf27",
+      "families": "19cf6628",
+      "derived": "13787d69"
     }
   }
 }

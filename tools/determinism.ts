@@ -26,6 +26,8 @@ import { dirname, join } from 'node:path';
 import { runVillage } from './driver';
 import { stateHash, auditReservations, type StateHash } from './assert';
 import { FOOD_TYPES, TUNING } from '../src/sim/defs';
+import { stockOf } from '../src/sim/systems/inventory';
+import type { Game } from '../src/sim/game';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const GOLDEN = join(HERE, 'golden-hashes.json');
@@ -47,24 +49,34 @@ const checkpoints = [...LADDER.filter((d) => d < days), days];
 /** Play one seed and hash it at each checkpoint. */
 function measure(seed: number): Run {
   const marks: Marks = {};
+  let summary = '';
   let next = 0;
-  const g = runVillage(seed, days, {
+  // Run one day *past* the last checkpoint, so every checkpoint — the final one
+  // included — is sampled at the same point in the day.
+  //
+  // The driver's loop exits the instant `day` reaches its target, which is
+  // before noon. Sampling the last checkpoint there instead of from `onDay`
+  // meant d150 taken at the end of a 150-day run and d150 passed through
+  // during a 400-day run were half a day apart, and hashed differently for no
+  // reason at all. Checkpoints have to describe a moment, not a stopping place.
+  const g = runVillage(seed, days + 1, {
     onDay: (game) => {
       while (next < checkpoints.length && game.day >= checkpoints[next]) {
         marks[`d${checkpoints[next]}`] = stateHash(game);
+        if (checkpoints[next] === days) summary = describe(game);
         next++;
       }
     },
   });
-  // The loop stops the moment `day` reaches `days`, which can be before noon,
-  // so the final checkpoint may not have fired from inside `onDay`.
-  if (!marks[`d${days}`]) marks[`d${days}`] = stateHash(g);
-  const food = FOOD_TYPES.reduce((s, f) => s + g.stockOf(f), 0);
-  const summary = `pop ${g.population}, ${g.buildings.size} buildings, `
+  return { marks, summary: summary || describe(g) };
+}
+
+function describe(g: Game): string {
+  const food = FOOD_TYPES.reduce((s, f) => s + stockOf(g, f), 0);
+  return `pop ${g.population}, ${g.buildings.size} buildings, `
     + `${(g.averageContentment * 100).toFixed(0)}% content, `
     + `${(food / Math.max(1, g.population * TUNING.foodPerDay)).toFixed(1)}d food, `
     + `ledger ${auditReservations(g).length ? 'LEAKING' : 'balanced'}`;
-  return { marks, summary };
 }
 
 // A worker run: one seed, one JSON line on stdout.
