@@ -187,22 +187,16 @@ export const ROTATION_BONUS = 1.25;
 export const MONOCULTURE_PENALTY = 0.78;
 
 /**
- * Seasonal agriculture: sown in spring, grown through summer, reaped in
- * autumn. All work values are per tile of field.
+ * Marks a zone building as arable. The numbers that drive sowing, growth and
+ * harvest all come from `CROPS[building.cropType]` — this is only the flag that
+ * says "this plot lives the farming year".
  */
-export interface Crop {
-  /** Worker-seconds per tile to get seed in the ground. */
-  sowWork: number;
-  /** Worker-seconds per tile to bring the crop from 0 to full growth. */
-  tendWork: number;
-  /** Units of `out` per tile at full growth on perfect soil. */
-  yieldPerTile: number;
-  out: ResId;
-  /** Worker-seconds per unit reaped in autumn. */
-  harvestWork: number;
+export interface Farmable {
+  /** Present for documentation; all real values live in CROPS. */
+  arable: true;
 }
 
-export type ServiceKind = 'water' | 'faith' | 'leisure' | 'health' | 'market' | 'learning' | 'warmth';
+export type ServiceKind = 'water' | 'faith' | 'leisure' | 'health' | 'market' | 'learning';
 
 export interface Service {
   kind: ServiceKind;
@@ -229,7 +223,7 @@ export interface BuildingDef {
   harvest?: Harvest;
   plants?: Plants;
   zone?: Zone;
-  crop?: Crop;
+  crop?: Farmable;
   service?: Service;
   /** Storage capacity contributed to the village stockpile. */
   storage?: number;
@@ -336,7 +330,9 @@ export const BUILDINGS: BuildingDef[] = [
     desc: 'Hard, slow work at an ore seam. The backbone of every tool you will ever own.',
     size: [3, 3], cost: { logs: 24, planks: 8, tools: 4 }, buildWork: 90, jobs: 4,
     harvest: { kind: 'iron', out: 'iron_ore', yield: 8, work: 26, radius: 7 },
-    needs: ['blacksmith'], height: 2.6, palette: 'stone',
+    // No blacksmith prerequisite: the smith needs iron, iron needs ore, and ore
+    // only comes from here. The tool cost is gate enough.
+    height: 2.6, palette: 'stone',
   }),
 
   // ---------------------------- Farming ----------------------------
@@ -345,7 +341,7 @@ export const BUILDINGS: BuildingDef[] = [
     desc: 'Drag out the plot you want, from a garden patch to a great open field. Sown in spring, tended in summer, reaped in autumn. Farming the same ground year after year slowly tires the soil.',
     size: [4, 4], cost: { logs: 4 }, buildWork: 30, jobs: 3, needsFertile: true,
     zone: { minSide: 3, maxSide: 9 },
-    crop: { sowWork: 2.2, tendWork: 4.2, yieldPerTile: 1.35, out: 'grain', harvestWork: 1.6 },
+    crop: { arable: true },
     height: 0.35, palette: 'field',
   }),
   B({
