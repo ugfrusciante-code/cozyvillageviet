@@ -78,6 +78,46 @@ function checkInvariants(g: Game, tick: number): void {
   // --- The hauling ledger balances against the villagers walking it.
   for (const p of auditReservations(g)) report('ledger', at(p));
 
+  // --- Aggregates equal the sum of open receipts. This is the S3 contract:
+  // reservedOut and incoming are maintained *only* by systems/hauling.ts, so
+  // any drift means a mutation went around the receipt layer.
+  {
+    const expReserved = new Map<string, number>();
+    const expIncoming = new Map<string, number>();
+    for (const h of g.hauls.values()) {
+      if (h.sourceId >= 0 && g.buildings.has(h.sourceId)) {
+        const k = `${h.sourceId}:${h.res}`;
+        expReserved.set(k, (expReserved.get(k) ?? 0) + h.amt);
+      }
+      if (h.destId >= 0 && g.buildings.has(h.destId)) {
+        const k = `${h.destId}:${h.res}`;
+        expIncoming.set(k, (expIncoming.get(k) ?? 0) + h.amt);
+      }
+      const holder = g.villagers.get(h.villagerId);
+      if (!holder) report('haul-ghost', at(`receipt ${h.id} held by dead villager ${h.villagerId}`));
+      else if (holder.haulId !== h.id) report('haul-unclaimed', at(`receipt ${h.id} not referenced by its villager (haulId=${holder.haulId})`));
+    }
+    for (const v of g.villagers.values()) {
+      if (v.haulId >= 0 && !g.hauls.has(v.haulId)) report('haul-dangling', at(`${v.name} references spent receipt ${v.haulId}`));
+    }
+    for (const b of g.buildings.values()) {
+      for (const [agg, exp, label] of [
+        [b.reservedOut, expReserved, 'reservedOut'],
+        [b.incoming, expIncoming, 'incoming'],
+      ] as const) {
+        const keys = new Set<string>(Object.keys(agg));
+        for (const k of exp.keys()) if (k.startsWith(`${b.id}:`)) keys.add(k.slice(`${b.id}:`.length));
+        for (const res of keys) {
+          const have = (agg as Record<string, number | undefined>)[res] ?? 0;
+          const want = exp.get(`${b.id}:${res}`) ?? 0;
+          if (Math.abs(have - want) > 0.01) {
+            report('receipt-drift', at(`${b.name} #${b.id} ${label}.${res}: aggregate ${have.toFixed(2)}, receipts sum to ${want.toFixed(2)}`));
+          }
+        }
+      }
+    }
+  }
+
   // --- Node claims: every claimed tile is held by exactly one villager.
   const holders = new Map<number, number>();
   for (const v of g.villagers.values()) {

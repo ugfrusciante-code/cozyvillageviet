@@ -39,6 +39,7 @@ import * as needs from './systems/needs';
 import * as population from './systems/population';
 import * as trade from './systems/trade';
 import * as alerts from './systems/alerts';
+import type { Haul } from './systems/hauling';
 import { seasonTick } from './systems/seasons';
 import { setupStart } from './systems/founding';
 
@@ -137,6 +138,12 @@ export class Game {
 
   /** Rebuilt each hour: which services reach which tiles. */
   serviceIndex = new Map<ServiceKind, Building[]>();
+  /**
+   * Open hauling claims, by receipt id (see systems/hauling.ts). Derived
+   * state: every trip is abandoned on load, so a fresh game starts empty.
+   */
+  hauls = new Map<number, Haul>();
+  nextHaulId = 1;
   /** Set whenever the workforce needs re-sorting; consumed by the next step. */
   reassignPending = true;
   /**

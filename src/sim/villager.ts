@@ -7,6 +7,9 @@ import { type ResId, RESOURCES, TUNING } from './defs';
 import type { Building } from './building';
 import type { Game } from './game';
 import type { PathPoint } from './world';
+import {
+  cancelHaulById, closeHaul, openDelivery, openHaul, pledgeTo, settleDelivery, settlePickup,
+} from './systems/hauling';
 import type { Codecs, Descriptor } from './persist';
 
 export type Action =
@@ -90,6 +93,8 @@ export class Villager {
   retry = 0;
   /** True while this villager has an ox and cart yoked for a haul. */
   hasOx = false;
+  /** Receipt for the claims the current trip holds, or -1. See systems/hauling. */
+  haulId = -1;
 
   constructor(x: number, y: number, age: number, rand: () => number, id?: number) {
     this.id = id ?? nextVillagerId++;
@@ -677,7 +682,10 @@ export class Villager {
       return false;
     }
     if (!this.gotoBuilding(g, dest)) { this.retry = 2; this.action = 'idle'; return false; }
-    dest.addIncoming(this.carry.res, this.carry.amt);
+    // Normally this load has no receipt yet (it was taken directly off a pile,
+    // or its trip settled); re-pledge the record if one is somehow open.
+    if (this.haulId >= 0) pledgeTo(g, this, dest.id);
+    else openDelivery(g, this, dest.id, this.carry.res, this.carry.amt);
     this.targetB = dest.id;
     this.action = 'toDrop';
     this.activity = `Carrying ${RESOURCES[this.carry.res].name.toLowerCase()}`;
@@ -704,13 +712,15 @@ export class Villager {
       const res = this.fetchRes!;
       const wanted = this.fetchAmt;
       const got = target!.take(res, Math.min(wanted, target!.amount(res)));
-      target!.releaseOut(res, wanted);
+      // Releases the reservation in full and shrinks any destination pledge by
+      // the shortfall; what stays open on the receipt is a pledge for `got`.
+      const pledgedTo = (() => {
+        const h = g.hauls.get(this.haulId);
+        return h && h.destId >= 0 ? g.buildings.get(h.destId) : undefined;
+      })();
+      settlePickup(g, this, got);
       this.lastPickupB = target!.id;
       this.fetchRes = null; this.fetchAmt = 0;
-
-      const pledgedTo = this.jobDestOverride >= 0 ? g.buildings.get(this.jobDestOverride) : undefined;
-      // The pledge was made for the full amount; release any shortfall.
-      if (pledgedTo && wanted > got) pledgedTo.clearIncoming(res, wanted - got);
       this.jobDestOverride = -1;
 
       if (got > 0) {
@@ -721,7 +731,7 @@ export class Villager {
         let dest = pledgedTo;
         if (!dest) {
           dest = wantsInput ? job : g.findDestination(res, this.x, this.y, got);
-          if (dest) dest.addIncoming(res, got);
+          if (dest) pledgeTo(g, this, dest.id);
         }
         if (dest && this.gotoBuilding(g, dest)) {
           this.targetB = dest.id;
@@ -729,8 +739,11 @@ export class Villager {
           this.activity = `${this.hasOx ? 'Carting' : 'Carrying'} ${RESOURCES[res].name.toLowerCase()}`;
           return;
         }
-        if (dest) dest.clearIncoming(res, got);
+        // No store, or no way to walk there: withdraw the pledge. The load
+        // stays in hand and gets a fresh receipt when a delivery next starts.
+        if (dest) pledgeTo(g, this, -1);
       }
+      closeHaul(g, this);
       this.action = 'idle';
       this.targetB = -1;
       return;
@@ -738,15 +751,11 @@ export class Villager {
 
     if (this.action === 'toDrop' && this.carry && target) {
       const { res, amt } = this.carry;
-      let placed = 0;
-      if (target.state === 'active') {
-        target.clearIncoming(res, amt);
-        placed = target.add(res, amt);
-      } else {
+      settleDelivery(g, this);
+      const placed = target.state === 'active'
+        ? target.add(res, amt)
         // Construction site: materials go into the frame, not the stores.
-        target.clearIncoming(res, amt);
-        placed = target.deliverMaterial(res, amt);
-      }
+        : target.deliverMaterial(res, amt);
       g.recordTransfer(this.lastPickupB, target.id, res, placed);
       this.lastPickupB = -1;
       const left = amt - placed;
@@ -800,10 +809,9 @@ export class Villager {
     if (amt < req.min) return false;
     if (!this.gotoBuilding(g, from)) return false;
 
-    from.reserveOut(res, amt);
     // A haul with no destination is a porter clearing a workshop: nobody has
     // promised to receive it yet, so the store is chosen on arrival.
-    req.to?.addIncoming(res, amt);
+    openHaul(g, this, from.id, req.to ? req.to.id : -1, res, amt);
 
     this.targetB = from.id;
     this.fetchRes = res;
@@ -825,17 +833,9 @@ export class Villager {
    */
   private cancelHaul(g: Game): void {
     this.releaseCart(g);
-    if (this.fetchRes) {
-      if (this.action === 'toPickup' && this.targetB >= 0) {
-        g.buildings.get(this.targetB)?.releaseOut(this.fetchRes, this.fetchAmt);
-      }
-      if (this.jobDestOverride >= 0) {
-        g.buildings.get(this.jobDestOverride)?.clearIncoming(this.fetchRes, this.fetchAmt);
-      }
-    }
-    if (this.carry && this.action === 'toDrop' && this.targetB >= 0) {
-      g.buildings.get(this.targetB)?.clearIncoming(this.carry.res, this.carry.amt);
-    }
+    // The receipt knows which sides are still open; there is nothing to
+    // re-derive from action flags, which is the point of having it.
+    cancelHaulById(g, this);
     this.fetchRes = null;
     this.fetchAmt = 0;
     this.jobDestOverride = -1;
@@ -1022,6 +1022,8 @@ export const VILLAGER_PERSIST = {
    * delivery instantly from wherever it happened to be.
    */
   path: 'derived', pathIdx: 'derived',
+  /** A receipt for claims that no longer exist — trips are abandoned on load. */
+  haulId: 'derived',
   /** Search cooldown; a fresh villager simply tries again. */
   retry: 'transient',
 
