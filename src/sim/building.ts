@@ -97,6 +97,11 @@ export class Building {
   downgradeStrikes = 0;
   /** True when the household had to raid a storehouse because the stall was bare. */
   rationing = false;
+  /**
+   * Yesterday's mood arithmetic, itemised: [source, earned, ceiling]. Pure UI —
+   * contentment is the number the sim acts on; this is why it is that number.
+   */
+  moodParts: [string, number, number][] = [];
 
   // --- Agriculture state (buildings with def.crop) ---
   /** 0..1: how far the standing crop has come this year. */
@@ -387,6 +392,7 @@ export const BUILDING_PERSIST = {
 
   // Recomputed on the next hourly or daily tick.
   services: 'derived', upgradeReady: 'derived', upgradeBlockers: 'derived',
+  moodParts: 'derived',
   serving: 'derived',
   /** Smoothed UI meter; decays to nothing within a few seconds anyway. */
   activity: 'transient',

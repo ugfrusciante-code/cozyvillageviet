@@ -130,18 +130,29 @@ export function householdNeeds(g: Game): void {
     const charmScore = Math.min(1, home.localCharm / 20);
     const crowding = home.def.id === 'longhouse' ? -0.1 : 0;
 
-    const target =
-      foodMet * 0.34 +
-      variety * 0.08 +
-      Math.min(1, s.fuelDays) * (g.season === 'winter' ? 0.20 : 0.14) +
-      Math.min(1, s.clothing * 4 + (s.clothingTypes.size ? 0.6 : 0)) * 0.08 +
-      hasWater * 0.09 +
-      faith * 0.08 +
-      leisure * 0.07 +
-      health * 0.05 +
-      charmScore * 0.09 +
-      Math.min(1, s.luxury * 4 + (s.luxuryTypes.size ? 0.5 : 0)) * 0.06 +
-      crowding;
+    // Each line is a named mood source: [label, earned, ceiling]. The same
+    // arithmetic as the old single expression, in the same order — summing the
+    // parts sequentially is bit-identical to the one big addition, which is
+    // why the ledger card could be added without moving a hash. Keeping the
+    // ceiling lets the UI say "faith 0.00 of 0.08" instead of just "0".
+    const fuelW = g.season === 'winter' ? 0.20 : 0.14;
+    const parts: [string, number, number][] = [
+      ['Fed', foodMet * 0.34, 0.34],
+      ['Food variety', variety * 0.08, 0.08],
+      ['Warm', Math.min(1, s.fuelDays) * fuelW, fuelW],
+      ['Clothed', Math.min(1, s.clothing * 4 + (s.clothingTypes.size ? 0.6 : 0)) * 0.08, 0.08],
+      ['Well water', hasWater * 0.09, 0.09],
+      ['Faith', faith * 0.08, 0.08],
+      ['Somewhere to gather', leisure * 0.07, 0.07],
+      ['A healer nearby', health * 0.05, 0.05],
+      ['Pleasant surroundings', charmScore * 0.09, 0.09],
+      ['Comforts', Math.min(1, s.luxury * 4 + (s.luxuryTypes.size ? 0.5 : 0)) * 0.06, 0.06],
+    ];
+    if (crowding !== 0) parts.push(['Crowded longhouse', crowding, 0]);
+
+    let target = 0;
+    for (const [, v] of parts) target += v;
+    home.moodParts = parts;
 
     // Contentment moves gradually — one bad day should not empty a village.
     home.contentment += (Math.max(0, Math.min(1, target)) - home.contentment) * 0.34;

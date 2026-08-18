@@ -495,6 +495,22 @@ export class UI {
         <div class="bar ${cPct < 40 ? 'hot' : cPct < 65 ? 'warm' : ''}"><i style="width:${cPct}%"></i></div>`);
       if (b.rationing) out.push('<p style="margin-top:6px">Rationing from the storehouse — the stalls were bare.</p>');
 
+      // Why that number: every mood source, best shortfalls first. A penalty
+      // (crowding) has no ceiling and renders as a plain negative.
+      if (b.moodParts.length) {
+        out.push('<div class="section">What the household feels</div>');
+        const ranked = [...b.moodParts].sort((a, z) => (a[2] - a[1]) - (z[2] - z[1])).reverse();
+        for (const [label, earned, ceiling] of ranked) {
+          if (ceiling === 0) {
+            out.push(`<div class="row"><span>${label}</span><b class="neg">−${Math.abs(earned * 100).toFixed(0)}</b></div>`);
+            continue;
+          }
+          const pct = Math.round((earned / ceiling) * 100);
+          out.push(`<div class="row"><span>${label}</span><b>${(earned * 100).toFixed(0)} of ${(ceiling * 100).toFixed(0)}</b></div>
+            <div class="bar ${pct < 35 ? 'hot' : pct < 70 ? 'warm' : ''}"><i style="width:${pct}%"></i></div>`);
+        }
+      }
+
       out.push('<div class="section">Supplied</div><div class="chips">');
       const s = b.supply;
       for (const f of FOOD_TYPES) if (s.foodTypes.has(f)) out.push(`<span class="chip ok">${RESOURCES[f].icon} ${RESOURCES[f].name}</span>`);

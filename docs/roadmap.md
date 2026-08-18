@@ -147,6 +147,14 @@ the old "8% a season unless a granary exists anywhere" force field. Rot never to
 reserved stock, so receipts stay honest. All three seeds survive 110 days; seed 7 holds
 pop 8–10 through year 13. First deliberate behaviour change — goldens re-recorded.
 
+### S7 — Approval legibility ✅ (first pass, pulled forward)
+Contentment was eleven named components collapsed into one float. The house inspector now
+shows the itemised arithmetic — "Fed 0 of 34, Warm 0 of 14" — worst shortfalls first, with
+penalties rendered as plain negatives. Zero behaviour change (the parts sum in the same
+order as the old expression, bit-identical), so this landed without touching the goldens.
+The decay-curve modifier stack from §4.9 remains the second pass, for when mood gains
+*event* sources (a death, a festival) rather than only standing conditions.
+
 ### S5 — Telemetry ✅ (first pass)
 The Village Ledger: sparklines over the 240-day histories, today's made/used/rotted flows,
 and the producing-but-not-moving diagnostics (hauls under way, starved workshops, goods
