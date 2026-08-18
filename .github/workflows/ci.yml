@@ -33,3 +33,12 @@ jobs:
       # re-recorded in the same commit that changed it.
       - name: Determinism
         run: npm run rope
+
+      # Until Pages is switched on, this is how a build gets played: every
+      # green run leaves a downloadable, self-contained copy of the game.
+      - name: Playable build
+        uses: actions/upload-artifact@v4
+        with:
+          name: cozy-village-${{ github.sha }}
+          path: dist
+          retention-days: 30

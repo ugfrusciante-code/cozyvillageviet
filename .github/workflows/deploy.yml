@@ -1,8 +1,10 @@
 name: Deploy
 
+# Manual until GitHub Pages is available for this repository. Pages needs a
+# public repo on the free plan; flip the repo to public (or upgrade), run
+# `gh api -X POST repos/OWNER/REPO/pages -f build_type=workflow` once, then
+# add the push trigger back here.
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
 
 # One deploy at a time; a newer push supersedes an in-flight one.
