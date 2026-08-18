@@ -1,0 +1,35 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+
+      - name: Typecheck
+        run: npx tsc --noEmit
+
+      - name: Build
+        run: npx vite build
+
+      # The economy harnesses: save round-trip and migrations, the hauling
+      # ledger, the soft-lock guard, oxen accounting.
+      - name: Harnesses
+        run: npm test
+
+      # The determinism rope. A red run here means the simulation changed
+      # behaviour — sometimes on purpose, in which case the goldens are
+      # re-recorded in the same commit that changed it.
+      - name: Determinism
+        run: npm run rope
