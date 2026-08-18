@@ -123,3 +123,31 @@ Three findings, in order of size:
 
 The measurement that started this — 97.3% of sim time in A\*, only 3.0% of searches reaching
 their goal — was worth more than the fix. The remaining cost is now genuine pathfinding.
+
+### S2 — Simulation invariants in CI ✅
+Sixteen structural rules checked at 1,600 snapshots across two 45-day villages, gating every
+push: workers↔jobIds, residents↔homeIds, families↔members↔homes, the hauling ledger against
+the villagers walking it, node claims against holders, no negative stock, the ox pool as a
+count of actual holders. Writing the node-claim rule found the next leak by inspection —
+`plantLoop` abandoned claimed planting spots on a failed path, permanently shrinking the
+forester's ring. Fixed, rope unchanged.
+
+### S3 — Transactional inventory ✅
+Every hauling claim is an identified receipt (`systems/hauling.ts`): open, settle each side,
+re-pledge, cancel — and cancellation releases what the record says is open instead of
+re-deriving it from action flags, which is how both shipped leaks happened. Aggregates stay
+materialised but are maintained in one module only; the invariant harness proves
+aggregate == Σ receipts at every snapshot and catches a manufactured bypass. Behaviour
+identical: 12/12 checkpoints unchanged.
+
+### S4 — Spoilage and storage quality ✅
+Food rots by class (berries fast, bread slow, roots barely, honey never), scaled by shelf
+(granary 0.15, storehouse 0.5, stall 1.0) and season (winter halves, summer +50%). Replaces
+the old "8% a season unless a granary exists anywhere" force field. Rot never touches
+reserved stock, so receipts stay honest. All three seeds survive 110 days; seed 7 holds
+pop 8–10 through year 13. First deliberate behaviour change — goldens re-recorded.
+
+### S5 — Telemetry ✅ (first pass)
+The Village Ledger: sparklines over the 240-day histories, today's made/used/rotted flows,
+and the producing-but-not-moving diagnostics (hauls under way, starved workshops, goods
+awaiting a haulier). Inspectors per §8.2 remain open for a later pass.
