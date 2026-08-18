@@ -83,12 +83,23 @@ export function reassign(g: Game): void {
 
   for (const b of openings) {
     while (b.workers.length < Math.min(b.jobSlots, b.def.jobs) && free.length) {
-      // Give the job to whoever lives closest.
+      // Give the job to whoever lives closest — with a thumb on the scale for
+      // kin. A family member already at this bench is worth eight tiles of
+      // walking: households drift toward working together, the way the same
+      // idea keeps whole families on one plot in Manor Lords. Texture, but
+      // also legibility — "the Rushmeres run the sawpit" reads; a roster of
+      // unrelated names does not.
+      const kinHere = new Set<number>();
+      for (const id of b.workers) {
+        const fam = g.villagers.get(id)?.familyId ?? -1;
+        if (fam >= 0) kinHere.add(fam);
+      }
       let bestI = 0, bestD = Infinity;
       for (let i = 0; i < free.length; i++) {
         const v = free[i];
         const home = v.homeId >= 0 ? g.buildings.get(v.homeId) : undefined;
-        const d = Math.hypot((home?.cx ?? v.x) - b.cx, (home?.cy ?? v.y) - b.cy);
+        const bonus = v.familyId >= 0 && kinHere.has(v.familyId) ? 8 : 0;
+        const d = Math.hypot((home?.cx ?? v.x) - b.cx, (home?.cy ?? v.y) - b.cy) - bonus;
         if (d < bestD) { bestD = d; bestI = i; }
       }
       const v = free.splice(bestI, 1)[0];

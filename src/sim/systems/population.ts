@@ -41,6 +41,17 @@ export function birthsAndDeaths(g: Game): void {
   }
   for (const v of dying) {
     const cause = v.age >= v.lifespan ? 'of old age' : 'of hardship';
+    // The household grieves — for a season and a bit, not for ever. A death of
+    // hardship cuts deeper than a long life ending. Emigration, notably, does
+    // not mourn: they left, they did not die.
+    const home = v.homeId >= 0 ? g.buildings.get(v.homeId) : undefined;
+    if (home) {
+      home.moodEvents.push({
+        label: `Mourning ${v.given}`,
+        delta: cause === 'of old age' ? -0.1 : -0.18,
+        until: g.day + 5,
+      });
+    }
     removeVillager(g, v);
     g.log(`${v.name} died ${cause}.`, cause === 'of old age' ? 'info' : 'bad');
   }
@@ -72,6 +83,7 @@ export function birthsAndDeaths(g: Game): void {
       fam.childrenBorn++;
       home.residents.push(baby.id);
       g.villagers.set(baby.id, baby);
+      home.moodEvents.push({ label: 'A child in the house', delta: 0.06, until: g.day + 3 });
       baby.educated = serviceLevel(g, 'learning', home.cx, home.cy).level > 0;
       if (baby.educated) baby.skill += 0.15;
       g.log(`${baby.name} was born to the ${fam.surname} family.`, 'good');

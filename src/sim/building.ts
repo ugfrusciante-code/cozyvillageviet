@@ -102,6 +102,13 @@ export class Building {
    * contentment is the number the sim acts on; this is why it is that number.
    */
   moodParts: [string, number, number][] = [];
+  /**
+   * Things that happened to this household and still weigh on it: a death, a
+   * birth, the home rising or falling a tier. Each carries its own expiry day.
+   * Unlike the standing sources above, these are real state — they span days
+   * and survive a save.
+   */
+  moodEvents: { label: string; delta: number; until: number }[] = [];
 
   // --- Agriculture state (buildings with def.crop) ---
   /** 0..1: how far the standing crop has come this year. */
@@ -405,6 +412,7 @@ export const BUILDING_PERSIST = {
 
   // Household.
   tier: 'save', familyIds: 'save', residents: 'save', contentment: 'save',
+  moodEvents: 'save',
   localCharm: 'save', downgradeStrikes: 'save', rationing: 'save',
 
   // Field.

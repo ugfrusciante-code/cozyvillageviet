@@ -9,7 +9,7 @@
     "preview": "vite preview",
     "check": "tsc --noEmit",
     "sim": "tsx tools/headless.ts",
-    "test": "tsx tools/save-test.ts && tsx tools/haul-save-test.ts && tsx tools/bootstrap-test.ts && tsx tools/ox-test.ts && tsx tools/invariants-test.ts && tsx tools/spoilage-test.ts",
+    "test": "tsx tools/save-test.ts && tsx tools/haul-save-test.ts && tsx tools/bootstrap-test.ts && tsx tools/ox-test.ts && tsx tools/invariants-test.ts && tsx tools/spoilage-test.ts && tsx tools/mourning-test.ts",
     "rope": "tsx tools/determinism.ts",
     "rope:update": "tsx tools/determinism.ts --update"
   },

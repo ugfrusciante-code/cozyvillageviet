@@ -147,6 +147,20 @@ the old "8% a season unless a granary exists anywhere" force field. Rot never to
 reserved stock, so receipts stay honest. All three seeds survive 110 days; seed 7 holds
 pop 8–10 through year 13. First deliberate behaviour change — goldens re-recorded.
 
+### S6 — Families that matter ✅ (first pass)
+Three connected pieces. Mood events with expiry — a death leaves the household "Mourning
+Beatrix" for five days (hardship cuts deeper than old age), a birth lifts it, the home rising
+or falling a tier registers; events are real saved state, land in the itemised mood card, and
+fade on schedule (tools/mourning-test.ts walks the whole lifecycle). Kin cohesion — a family
+member already at a workplace is worth eight tiles in assignment, so households drift toward
+working together. And the People panel now reads as households, eldest first, with the
+between-homes stragglers at the end. Emigration deliberately does not mourn: they left, they
+did not die. Long-run effect is a genuine boom-bust-settle cycle — seed 7 booms to pop 18,
+outgrows its fixed build order, crashes to 9 and settles at 10–11 — second-order dynamics
+from mood, cohesion and spoilage interacting. Goldens re-recorded. The full grain-shift
+(per-family job slots, Manor Lords style) stays open; assignment preference gets most of the
+texture at a fraction of the risk.
+
 ### S7 — Approval legibility ✅ (first pass, pulled forward)
 Contentment was eleven named components collapsed into one float. The house inspector now
 shows the itemised arithmetic — "Fed 0 of 34, Warm 0 of 14" — worst shortfalls first, with

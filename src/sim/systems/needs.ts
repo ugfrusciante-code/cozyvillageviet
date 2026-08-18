@@ -150,6 +150,11 @@ export function householdNeeds(g: Game): void {
     ];
     if (crowding !== 0) parts.push(['Crowded longhouse', crowding, 0]);
 
+    // What happened here still matters for a while: mourning, a new baby, the
+    // house rising or falling in the world. Expired feelings fall away.
+    home.moodEvents = home.moodEvents.filter((e) => g.day < e.until);
+    for (const e of home.moodEvents) parts.push([e.label, e.delta, 0]);
+
     let target = 0;
     for (const [, v] of parts) target += v;
     home.moodParts = parts;
@@ -201,12 +206,14 @@ export function housingAndTiers(g: Game): void {
     if (home.upgradeReady) {
       home.tier = next.tier;
       const surname = familyOf(g, home)?.surname ?? 'household';
+      home.moodEvents.push({ label: 'A finer home', delta: 0.08, until: g.day + 4 });
       g.log(`The ${surname} home became a ${next.name}.`, 'good');
     } else if (home.tier > 1 && (s.foodDays < 0.3 || (next.water && !(home.services.water ?? 0)))) {
       // Sustained neglect knocks a house back down a rung.
       home.downgradeStrikes = (home.downgradeStrikes ?? 0) + 1;
       if (home.downgradeStrikes > 4) {
         home.tier--; home.downgradeStrikes = 0;
+        home.moodEvents.push({ label: 'Lost standing', delta: -0.1, until: g.day + 4 });
         g.log('A household fell on hard times and lost its standing.', 'bad');
       }
     } else {

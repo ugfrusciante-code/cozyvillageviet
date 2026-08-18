@@ -90,6 +90,21 @@ export class UI {
     $('menu-save').onclick = () => { this.cb.onSave(); $('menu-status').textContent = this.cb.saveStatus(); };
     $('menu-load').onclick = () => this.cb.onLoad();
     $('menu-export').onclick = () => this.cb.onExport();
+    // Destructive, so it asks twice: the first click arms the button, the
+    // second within a few seconds actually starts over.
+    let armedAt = 0;
+    $('menu-new').onclick = () => {
+      const btn = $('menu-new');
+      if (performance.now() - armedAt < 4000) {
+        btn.textContent = 'Start a new village';
+        this.cb.onNewGame();
+        $('menu').classList.add('hidden');
+        return;
+      }
+      armedAt = performance.now();
+      btn.textContent = 'Click again to abandon this village';
+      setTimeout(() => { if (performance.now() - armedAt >= 4000) btn.textContent = 'Start a new village'; }, 4200);
+    };
     $('menu-import').onclick = () => ($('menu-file') as HTMLInputElement).click();
     ($('menu-file') as HTMLInputElement).onchange = (e) => {
       const f = (e.target as HTMLInputElement).files?.[0];
@@ -501,8 +516,12 @@ export class UI {
         out.push('<div class="section">What the household feels</div>');
         const ranked = [...b.moodParts].sort((a, z) => (a[2] - a[1]) - (z[2] - z[1])).reverse();
         for (const [label, earned, ceiling] of ranked) {
+          // No ceiling means an event or a penalty, not a need being met —
+          // mourning weighs, a new baby lifts. Show it signed, no bar.
           if (ceiling === 0) {
-            out.push(`<div class="row"><span>${label}</span><b class="neg">−${Math.abs(earned * 100).toFixed(0)}</b></div>`);
+            const up = earned > 0;
+            out.push(`<div class="row"><span>${label}</span>` +
+              `<b class="${up ? 'pos' : 'neg'}">${up ? '+' : '−'}${Math.abs(earned * 100).toFixed(0)}</b></div>`);
             continue;
           }
           const pct = Math.round((earned / ceiling) * 100);
@@ -902,20 +921,41 @@ export class UI {
 
   private renderPeople(): void {
     const g = this.game;
-    const rows = [...g.villagers.values()]
-      .sort((a, b) => (a.jobId === b.jobId ? a.id - b.id : (b.jobId < 0 ? -1 : 1)))
-      .map((v) => {
-        const job = v.jobId >= 0 ? g.buildings.get(v.jobId) : undefined;
-        return `
-          <div class="person">
-            <div class="who"><b>${v.name}</b><span>${Math.floor(v.age)} years · ${v.jobTitle}</span></div>
-            <div class="what">${job ? `${job.def.icon} ${job.name}` : 'Labourer'}</div>
-            <div class="what">${v.activity}</div>
-            <div><button class="btn" data-goto="${v.id}">Find</button></div>
-          </div>`;
-      });
+    // The village is households, not a roster: group by family, eldest first
+    // within each, and the handful of villagers between homes at the end.
+    const person = (v: Villager): string => {
+      const job = v.jobId >= 0 ? g.buildings.get(v.jobId) : undefined;
+      return `
+        <div class="person">
+          <div class="who"><b>${v.name}</b><span>${Math.floor(v.age)} years · ${v.jobTitle}</span></div>
+          <div class="what">${job ? `${job.def.icon} ${job.name}` : 'Labourer'}</div>
+          <div class="what">${v.activity}</div>
+          <div><button class="btn" data-goto="${v.id}">Find</button></div>
+        </div>`;
+    };
+    const out: string[] = [];
+    const shown = new Set<number>();
+    const families = [...g.families.values()]
+      .filter((f) => f.memberIds.length > 0)
+      .sort((a, b) => b.memberIds.length - a.memberIds.length || a.id - b.id);
+    for (const f of families) {
+      const members = f.memberIds
+        .map((id) => g.villagers.get(id))
+        .filter((v): v is Villager => !!v)
+        .sort((a, b) => b.age - a.age);
+      if (!members.length) continue;
+      const home = f.homeId >= 0 ? g.buildings.get(f.homeId) : undefined;
+      const mood = home && home.residents.length ? ` · ${Math.round(home.contentment * 100)}% content` : '';
+      out.push(`<div class="section">The ${f.surname}s · ${members.length}${mood}</div>`);
+      for (const v of members) { out.push(person(v)); shown.add(v.id); }
+    }
+    const loose = [...g.villagers.values()].filter((v) => !shown.has(v.id));
+    if (loose.length) {
+      out.push(`<div class="section">Between homes · ${loose.length}</div>`);
+      for (const v of loose.sort((a, b) => b.age - a.age)) out.push(person(v));
+    }
     const host = $('people-list');
-    host.innerHTML = rows.join('');
+    host.innerHTML = out.join('');
     for (const el of host.querySelectorAll('[data-goto]')) {
       (el as HTMLElement).onclick = () => {
         const v = g.villagers.get(Number((el as HTMLElement).dataset.goto));
