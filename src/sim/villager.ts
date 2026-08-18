@@ -400,7 +400,15 @@ export class Villager {
       if (spot < 0) { b.status = 'Forest is full'; this.retry = 4; this.stayAt(g, dt, b, 'Forest is thriving'); return; }
       this.targetNode = spot;
       const nx = spot % g.world.size, ny = (spot / g.world.size) | 0;
-      if (!this.goto(g, nx, ny, 0.9)) { this.targetNode = -1; this.retry = 2; return; }
+      if (!this.goto(g, nx, ny, 0.9)) {
+        // Hand the claim back, exactly as harvestLoop does. Without this, a
+        // spot the forester cannot reach stays claimed for ever and the
+        // plantable ring around the hut quietly shrinks tile by tile.
+        g.releaseNode(spot);
+        this.targetNode = -1;
+        this.retry = 2;
+        return;
+      }
       this.action = 'toNode';
       b.status = 'Planting';
     }
