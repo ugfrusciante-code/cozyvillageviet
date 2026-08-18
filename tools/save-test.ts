@@ -1,6 +1,6 @@
 /** Round-trips a mid-game village through serialize/deserialize and diffs it. */
 import { Game } from '../src/sim/game';
-import { serialize, deserialize } from '../src/sim/save';
+import { SAVE_VERSION, serialize, deserialize, type SaveData } from '../src/sim/save';
 import { BUILDING_BY_ID, FOOD_TYPES, type ResId } from '../src/sim/defs';
 import { RNG } from '../src/sim/world';
 
@@ -85,5 +85,48 @@ if (b2 !== a2) {
   }
 }
 void BUILDING_BY_ID;
+
+// ------------------------------------------------------ version handling
+
+const check = (ok: boolean, label: string, detail = '') => {
+  console.log(`${ok ? 'PASS' : 'FAIL'}: ${label}${detail ? ` — ${detail}` : ''}`);
+  if (!ok) failed++;
+};
+
+// A v3 payload must still load. The on-disk shape did not change at v4, only
+// the code that produces it, so the migration is an identity step — but the
+// chain has to actually run, and this is what proves it does.
+const v3 = JSON.parse(JSON.stringify(serialize(g))) as SaveData;
+v3.version = 3;
+let loadedV3: ReturnType<typeof deserialize> | null = null;
+try { loadedV3 = deserialize(v3); } catch (e) { check(false, 'a version 3 save still loads', String(e)); }
+if (loadedV3) {
+  check(true, 'a version 3 save still loads');
+  check(loadedV3.villagers.size === g.villagers.size && loadedV3.buildings.size === g.buildings.size,
+    'the migrated village is intact',
+    `${loadedV3.villagers.size} villagers, ${loadedV3.buildings.size} buildings`);
+}
+
+// A payload from a newer build must be refused, not half-read.
+const future = JSON.parse(JSON.stringify(serialize(g))) as SaveData;
+future.version = SAVE_VERSION + 1;
+let refused = '';
+try { deserialize(future); } catch (e) { refused = String(e); }
+check(refused.includes('newer build'), 'a save from a newer build is refused clearly', refused || 'it was accepted');
+
+// And so must a version with no migration to reach the present.
+const ancient = JSON.parse(JSON.stringify(serialize(g))) as SaveData;
+ancient.version = 1;
+let ancientErr = '';
+try { deserialize(ancient); } catch (e) { ancientErr = String(e); }
+check(ancientErr.includes('version 1'), 'an unreadably old save is refused', ancientErr || 'it was accepted');
+
+// Adding a field must not need a migration: a key the loader knows about but
+// the payload lacks has to fall back to the class default.
+const missingKey = JSON.parse(JSON.stringify(serialize(g))) as SaveData;
+for (const b of missingKey.buildings) delete (b as Record<string, unknown>).rotationFactor;
+const patched = deserialize(missingKey);
+const defaults = [...patched.buildings.values()].every((b) => b.rotationFactor === 1);
+check(defaults, 'a field absent from an older payload keeps its class default');
 
 process.exit(failed === 0 ? 0 : 1);

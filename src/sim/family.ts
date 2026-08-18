@@ -4,6 +4,8 @@
  * settlement is a set of families rather than a pile of interchangeable workers.
  */
 
+import type { Codecs, Descriptor } from './persist';
+
 /** The one surname pool. Villagers take their family's name, never their own. */
 export const SURNAMES = [
   'Ashdown', 'Barleycorn', 'Cobb', 'Dunmore', 'Ellersby', 'Fallow', 'Greenhollow', 'Hearth',
@@ -38,3 +40,12 @@ export class Family {
 
   get size(): number { return this.memberIds.length; }
 }
+
+/** See `./persist`. Adding a field to Family without classifying it fails the build. */
+export const FAMILY_PERSIST = {
+  id: 'ctor', surname: 'ctor', founded: 'ctor',
+  size: 'derived',
+  homeId: 'save', memberIds: 'save', childrenBorn: 'save',
+} satisfies Descriptor<Family>;
+
+export const FAMILY_CODECS: Codecs<Family> = {};

@@ -7,6 +7,7 @@ import {
   BUILDING_BY_ID, CROPS, HOUSE_TIERS, MONOCULTURE_PENALTY, RESOURCES, ROTATION_BONUS,
 } from './defs';
 import type { World } from './world';
+import type { Codecs, Descriptor } from './persist';
 
 export type BuildingState = 'building' | 'active';
 
@@ -40,8 +41,6 @@ export class Building {
   entrance: { x: number; y: number };
   /** Ground height, sampled at placement so the mesh sits flush. */
   groundY = 0;
-  /** Cosmetic yaw, 0..3 quarter turns. */
-  rotation = 0;
   /** Cosmetic variation seed for the renderer. */
   variant = 0;
 
@@ -360,3 +359,84 @@ export class Building {
   /** Heads that can live here: a family is two adults and up to a child each. */
   get capacityResidents(): number { return this.capacityFamilies * 3; }
 }
+
+// ---------------------------------------------------------------- persistence
+
+/**
+ * What the saver does with each field. See `./persist` — the `satisfies` below
+ * means adding a field to Building without deciding this is a build error.
+ */
+export const BUILDING_PERSIST = {
+  // Identity and footprint: fixed at construction, so the loader passes them in.
+  id: 'ctor', defId: 'ctor', x: 'ctor', y: 'ctor', w: 'ctor', h: 'ctor',
+
+  // Rebuilt from defId, the footprint, or the terrain underneath.
+  def: 'derived', cx: 'derived', cy: 'derived',
+  groundY: 'derived', variant: 'derived',
+  area: 'derived', sizeFactor: 'derived',
+  isHouse: 'derived', isStorage: 'derived', name: 'derived',
+  buildWorkTotal: 'derived', capacityFamilies: 'derived', capacityResidents: 'derived',
+  families: 'derived', crop: 'derived', standingCrop: 'derived',
+  buildFraction: 'derived',
+  // ^ every one of these is a getter: computed, never assigned.
+
+  // The reservation ledger is deliberately not saved. Every trip is abandoned
+  // on load, so both sides start empty; a two-sided ledger written to disk can
+  // only ever come back disagreeing with itself. See Game.afterLoad.
+  reservedOut: 'derived', incoming: 'derived',
+
+  // Recomputed on the next hourly or daily tick.
+  services: 'derived', upgradeReady: 'derived', upgradeBlockers: 'derived',
+  serving: 'derived',
+  /** Smoothed UI meter; decays to nothing within a few seconds anyway. */
+  activity: 'transient',
+
+  // Construction and production.
+  state: 'save', delivered: 'save', buildProgress: 'save', store: 'save',
+  workers: 'save', jobSlots: 'save', paused: 'save', priority: 'save',
+  workAccum: 'save', produced: 'save', status: 'save', fertility: 'save',
+  limit: 'save',
+
+  // Household.
+  tier: 'save', familyIds: 'save', residents: 'save', contentment: 'save',
+  localCharm: 'save', downgradeStrikes: 'save', rationing: 'save',
+
+  // Field.
+  growth: 'save', sown: 'save', sowProgress: 'save',
+  cropPool: 'save', cropPoolInit: 'save',
+  cropType: 'save', sownCrop: 'save', lastCrop: 'save', rotationFactor: 'save',
+
+  // Not plain JSON.
+  entrance: 'custom', supply: 'custom',
+} satisfies Descriptor<Building>;
+
+export const BUILDING_CODECS: Codecs<Building> = {
+  // Stored as a pair rather than an object, which is also the shape older
+  // saves use.
+  entrance: {
+    get: (b) => [b.entrance.x, b.entrance.y],
+    set: (b, v) => { const [x, y] = v as [number, number]; b.entrance = { x, y }; },
+  },
+  // Three Sets and four numbers. The key names are the ones on disk.
+  supply: {
+    get: (b) => ({
+      food: [...b.supply.foodTypes],
+      clothing: [...b.supply.clothingTypes],
+      luxury: [...b.supply.luxuryTypes],
+      foodDays: b.supply.foodDays, fuelDays: b.supply.fuelDays,
+      clothingAmt: b.supply.clothing, luxuryAmt: b.supply.luxury,
+    }),
+    set: (b, v) => {
+      const s = v as {
+        food: ResId[]; clothing: ResId[]; luxury: ResId[];
+        foodDays: number; fuelDays: number; clothingAmt: number; luxuryAmt: number;
+      };
+      b.supply = {
+        foodTypes: new Set(s.food), clothingTypes: new Set(s.clothing),
+        luxuryTypes: new Set(s.luxury),
+        foodDays: s.foodDays, fuelDays: s.fuelDays,
+        clothing: s.clothingAmt, luxury: s.luxuryAmt,
+      };
+    },
+  },
+};

@@ -69,7 +69,10 @@ export interface StateHash {
 export function stateHash(g: Game): StateHash {
   const d = serialize(g, 'hash');
 
-  const byId = <T extends { id: number }>(xs: T[]): T[] => [...xs].sort((a, b) => a.id - b.id);
+  // Saved objects are descriptor-shaped, so `id` is a plain key rather than a
+  // typed field. Sorting by it keeps the digest independent of Map order.
+  const byId = (xs: Record<string, unknown>[]): Record<string, unknown>[] =>
+    [...xs].sort((a, b) => Number(a.id) - Number(b.id));
 
   const clock = h({ t: d.t, day: d.day, year: d.year, season: d.season, lastDay: d.lastDay, lastHourTick: d.lastHourTick, rngState: d.rngState });
   const economy = h({ coin: d.coin, trade: d.trade, tradeRules: d.tradeRules, stats: d.stats, lostGoods: d.lostGoods, events: d.events });

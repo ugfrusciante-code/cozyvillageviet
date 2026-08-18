@@ -7,13 +7,18 @@
  * which takes a ~37k-number payload down to a few hundred pairs.
  */
 
-import type { CropType, NodeKind, ResId, Season } from './defs';
-import { Building, setNextBuildingId, peekNextBuildingId } from './building';
-import { Family, setNextFamilyId, peekNextFamilyId } from './family';
-import { Villager, setNextVillagerId, peekNextVillagerId } from './villager';
+import type { NodeKind, Season } from './defs';
+import {
+  BUILDING_CODECS, BUILDING_PERSIST, Building, setNextBuildingId, peekNextBuildingId,
+} from './building';
+import { FAMILY_CODECS, FAMILY_PERSIST, Family, setNextFamilyId, peekNextFamilyId } from './family';
+import {
+  VILLAGER_CODECS, VILLAGER_PERSIST, Villager, setNextVillagerId, peekNextVillagerId,
+} from './villager';
+import { decode, encode } from './persist';
 import { Game } from './game';
 
-export const SAVE_VERSION = 3;
+export const SAVE_VERSION = 4;
 export const SAVE_KEY = 'cozy-village/save';
 export const AUTOSAVE_KEY = 'cozy-village/autosave';
 
@@ -47,40 +52,13 @@ function rleDecodeInto(rle: RLE, target: { [i: number]: number; length: number }
 
 // ------------------------------------------------------------------- shapes
 
-interface SavedBuilding {
-  id: number; defId: string; x: number; y: number; w: number; h: number;
-  state: string; delivered: Record<string, number>; buildProgress: number;
-  store: Record<string, number>; workers: number[]; jobSlots: number;
-  paused: boolean; priority: number; workAccum: number; produced: number;
-  status: string; fertility: number; entrance: [number, number];
-  limit: number | null;
-  tier: number; familyIds: number[]; residents: number[]; contentment: number;
-  supply: {
-    food: string[]; clothing: string[]; luxury: string[];
-    foodDays: number; fuelDays: number; clothingAmt: number; luxuryAmt: number;
-  };
-  localCharm: number; downgradeStrikes: number; rationing: boolean;
-  growth: number; sown: boolean; sowProgress: number;
-  cropPool: number; cropPoolInit: number;
-  cropType: CropType; sownCrop: CropType | null; lastCrop: CropType | null;
-  rotationFactor: number;
-}
-
-interface SavedVillager {
-  id: number; name: string; age: number; lifespan: number;
-  homeId: number; jobId: number; familyId: number;
-  x: number; y: number; facing: number;
-  action: string; activity: string;
-  carry: { res: ResId; amt: number } | null;
-  targetB: number; fetchRes: ResId | null; fetchAmt: number; targetNode: number;
-  jobDestOverride: number; lastPickupB: number;
-  workTimer: number; skill: number; educated: boolean; health: number; hasOx: boolean;
-}
-
-interface SavedFamily {
-  id: number; surname: string; homeId: number; memberIds: number[];
-  founded: number; childrenBorn: number;
-}
+/**
+ * Per-object payloads are whatever the class's descriptor says to write, so
+ * there is deliberately no hand-maintained mirror of the class shape here.
+ * That mirror is what lost the reservation ledger: four edit sites, no
+ * compile-time link to the class, and nothing to notice a field going missing.
+ */
+type Saved = Record<string, unknown>;
 
 export interface SaveData {
   version: number;
@@ -103,10 +81,23 @@ export interface SaveData {
     road: RLE; softBlock: RLE;
     regrowKind: [number, string][];
   };
-  buildings: SavedBuilding[];
-  villagers: SavedVillager[];
-  families: SavedFamily[];
+  buildings: Saved[];
+  villagers: Saved[];
+  families: Saved[];
 }
+
+/**
+ * Loaders for older payloads, applied in sequence: a v3 save runs
+ * MIGRATIONS[3] and is then a v4 save.
+ *
+ * Most changes need nothing here. A newly-saved field is simply absent from an
+ * old payload, and `decode` leaves it at the class default — so migrations are
+ * for renames and changes of meaning, which are rare. v3 to v4 changed how the
+ * payload is *produced*, not what it contains, hence the identity step.
+ */
+const MIGRATIONS: Record<number, (d: SaveData) => SaveData> = {
+  3: (d) => d,
+};
 
 // ---------------------------------------------------------------- serialize
 
@@ -141,59 +132,34 @@ export function serialize(g: Game, label = 'Manual save'): SaveData {
       softBlock: rleEncode(w.softBlock),
       regrowKind: [...g.regrowKind.entries()].map(([i, k]) => [i, k] as [number, string]),
     },
-    buildings: [...g.buildings.values()].map((b) => ({
-      id: b.id, defId: b.defId, x: b.x, y: b.y, w: b.w, h: b.h,
-      state: b.state,
-      delivered: b.delivered as Record<string, number>,
-      buildProgress: b.buildProgress,
-      store: b.store as Record<string, number>,
-      workers: [...b.workers], jobSlots: b.jobSlots,
-      paused: b.paused, priority: b.priority, workAccum: b.workAccum,
-      produced: b.produced, status: b.status, fertility: b.fertility,
-      entrance: [b.entrance.x, b.entrance.y] as [number, number],
-      limit: b.limit,
-      tier: b.tier, familyIds: [...b.familyIds], residents: [...b.residents],
-      contentment: b.contentment,
-      supply: {
-        food: [...b.supply.foodTypes],
-        clothing: [...b.supply.clothingTypes],
-        luxury: [...b.supply.luxuryTypes],
-        foodDays: b.supply.foodDays, fuelDays: b.supply.fuelDays,
-        clothingAmt: b.supply.clothing, luxuryAmt: b.supply.luxury,
-      },
-      localCharm: b.localCharm, downgradeStrikes: b.downgradeStrikes,
-      rationing: b.rationing,
-      growth: b.growth, sown: b.sown, sowProgress: b.sowProgress,
-      cropPool: b.cropPool, cropPoolInit: b.cropPoolInit,
-      cropType: b.cropType, sownCrop: b.sownCrop, lastCrop: b.lastCrop,
-      rotationFactor: b.rotationFactor,
-    })),
-    villagers: [...g.villagers.values()].map((v) => ({
-      id: v.id, name: v.name, age: v.age, lifespan: v.lifespan,
-      homeId: v.homeId, jobId: v.jobId, familyId: v.familyId,
-      x: v.x, y: v.y, facing: v.facing,
-      action: v.action, activity: v.activity,
-      carry: v.carry ? { res: v.carry.res, amt: v.carry.amt } : null,
-      targetB: v.targetB, fetchRes: v.fetchRes, fetchAmt: v.fetchAmt,
-      targetNode: v.targetNode,
-      jobDestOverride: v.jobDestOverride, lastPickupB: v.lastPickupB,
-      workTimer: v.workTimer, skill: v.skill, educated: v.educated,
-      health: v.health, hasOx: v.hasOx,
-    })),
-    families: [...g.families.values()].map((f) => ({
-      id: f.id, surname: f.surname, homeId: f.homeId,
-      memberIds: [...f.memberIds], founded: f.founded,
-      childrenBorn: f.childrenBorn,
-    })),
+    buildings: [...g.buildings.values()].map((b) => encode(b, BUILDING_PERSIST, BUILDING_CODECS)),
+    villagers: [...g.villagers.values()].map((v) => encode(v, VILLAGER_PERSIST, VILLAGER_CODECS)),
+    families: [...g.families.values()].map((f) => encode(f, FAMILY_PERSIST, FAMILY_CODECS)),
   };
+}
+
+// --------------------------------------------------------------- migration
+
+/** Bring any readable payload up to the current version, or refuse it. */
+function migrate(data: SaveData): SaveData {
+  if (data.version > SAVE_VERSION) {
+    throw new Error(
+      `Save is version ${data.version}; this build reads up to ${SAVE_VERSION}. It was made by a newer build.`,
+    );
+  }
+  let d = data;
+  while (d.version < SAVE_VERSION) {
+    const step = MIGRATIONS[d.version];
+    if (!step) throw new Error(`No way to read a version ${d.version} save.`);
+    d = { ...step(d), version: d.version + 1 };
+  }
+  return d;
 }
 
 // -------------------------------------------------------------- deserialize
 
-export function deserialize(data: SaveData): Game {
-  if (data.version !== SAVE_VERSION) {
-    throw new Error(`Save is version ${data.version}, this build reads ${SAVE_VERSION}.`);
-  }
+export function deserialize(raw: SaveData): Game {
+  const data = migrate(raw);
   // Rebuild the valley from its seed, then lay the saved deltas over the top.
   const g = new Game(data.seed, true);
   const w = g.world;
@@ -220,31 +186,11 @@ export function deserialize(data: SaveData): Game {
 
   // Buildings first: villagers and families reference them by id.
   for (const sb of data.buildings) {
-    const b = new Building(sb.defId, sb.x, sb.y, w, sb.w, sb.h, sb.id);
-    b.state = sb.state as Building['state'];
-    b.delivered = sb.delivered as Building['delivered'];
-    b.buildProgress = sb.buildProgress;
-    b.store = sb.store as Building['store'];
-    b.workers = sb.workers; b.jobSlots = sb.jobSlots;
-    b.paused = sb.paused; b.priority = sb.priority; b.workAccum = sb.workAccum;
-    b.produced = sb.produced; b.status = sb.status; b.fertility = sb.fertility;
-    b.entrance = { x: sb.entrance[0], y: sb.entrance[1] };
-    b.limit = sb.limit;
-    b.tier = sb.tier; b.familyIds = sb.familyIds; b.residents = sb.residents;
-    b.contentment = sb.contentment;
-    b.supply = {
-      foodTypes: new Set(sb.supply.food as ResId[]),
-      clothingTypes: new Set(sb.supply.clothing as ResId[]),
-      luxuryTypes: new Set(sb.supply.luxury as ResId[]),
-      foodDays: sb.supply.foodDays, fuelDays: sb.supply.fuelDays,
-      clothing: sb.supply.clothingAmt, luxury: sb.supply.luxuryAmt,
-    };
-    b.localCharm = sb.localCharm; b.downgradeStrikes = sb.downgradeStrikes;
-    b.rationing = sb.rationing;
-    b.growth = sb.growth; b.sown = sb.sown; b.sowProgress = sb.sowProgress;
-    b.cropPool = sb.cropPool; b.cropPoolInit = sb.cropPoolInit;
-    b.cropType = sb.cropType; b.sownCrop = sb.sownCrop; b.lastCrop = sb.lastCrop;
-    b.rotationFactor = sb.rotationFactor;
+    const b = new Building(
+      sb.defId as string, sb.x as number, sb.y as number, w,
+      sb.w as number, sb.h as number, sb.id as number,
+    );
+    decode(b, sb, BUILDING_PERSIST, BUILDING_CODECS);
     g.buildings.set(b.id, b);
 
     // Re-stamp the occupancy grid without the side effects of placement
@@ -257,25 +203,14 @@ export function deserialize(data: SaveData): Game {
   }
 
   for (const sf of data.families) {
-    const f = new Family(sf.surname, sf.founded, sf.id);
-    f.homeId = sf.homeId; f.memberIds = sf.memberIds;
-    f.childrenBorn = sf.childrenBorn;
+    const f = new Family(sf.surname as string, sf.founded as number, sf.id as number);
+    decode(f, sf, FAMILY_PERSIST, FAMILY_CODECS);
     g.families.set(f.id, f);
   }
 
   for (const sv of data.villagers) {
-    const v = new Villager(sv.x, sv.y, sv.age, () => 0.5, sv.id);
-    v.name = sv.name; v.lifespan = sv.lifespan;
-    v.homeId = sv.homeId; v.jobId = sv.jobId; v.familyId = sv.familyId;
-    v.facing = sv.facing;
-    v.action = sv.action as Villager['action'];
-    v.activity = sv.activity;
-    v.carry = sv.carry;
-    v.targetB = sv.targetB; v.fetchRes = sv.fetchRes; v.fetchAmt = sv.fetchAmt;
-    v.targetNode = sv.targetNode;
-    v.jobDestOverride = sv.jobDestOverride; v.lastPickupB = sv.lastPickupB;
-    v.workTimer = sv.workTimer; v.skill = sv.skill; v.educated = sv.educated;
-    v.health = sv.health; v.hasOx = sv.hasOx;
+    const v = new Villager(sv.x as number, sv.y as number, sv.age as number, () => 0.5, sv.id as number);
+    decode(v, sv, VILLAGER_PERSIST, VILLAGER_CODECS);
     // Paths are not saved: everyone re-plans from where they stand. That means
     // EVERY walking state must be reset — `stepPath` treats an empty path as
     // "arrived", so a hauler restored mid-trip would otherwise complete its
@@ -324,7 +259,7 @@ export function peekSave(key = SAVE_KEY): { savedAt: number; label: string; day:
   if (!raw) return null;
   try {
     const d = JSON.parse(raw) as SaveData;
-    if (d.version !== SAVE_VERSION) return null;
+    if (d.version > SAVE_VERSION || (d.version < SAVE_VERSION && !MIGRATIONS[d.version])) return null;
     return { savedAt: d.savedAt, label: d.label, day: d.day, year: d.year, pop: d.villagers.length };
   } catch {
     return null;

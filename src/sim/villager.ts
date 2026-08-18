@@ -7,6 +7,7 @@ import { type ResId, RESOURCES, TUNING } from './defs';
 import type { Building } from './building';
 import type { Game } from './game';
 import type { PathPoint } from './world';
+import type { Codecs, Descriptor } from './persist';
 
 export type Action =
   | 'idle' | 'wander' | 'toWork' | 'working'
@@ -995,3 +996,34 @@ export class Villager {
     this.action = 'idle';
   }
 }
+
+// ---------------------------------------------------------------- persistence
+
+/** See `./persist`. Adding a field to Villager without classifying it fails the build. */
+export const VILLAGER_PERSIST = {
+  id: 'ctor',
+
+  // Getters: computed from age, name and load.
+  capacity: 'derived', given: 'derived', isAdult: 'derived', isChild: 'derived',
+  isElder: 'derived', carrying: 'derived', jobTitle: 'derived',
+
+  /**
+   * Not saved on purpose. Everyone re-plans from where they stand on load,
+   * which is also why every walking action is reset — `stepPath` treats an
+   * empty path as "arrived", so a restored hauler would otherwise finish its
+   * delivery instantly from wherever it happened to be.
+   */
+  path: 'derived', pathIdx: 'derived',
+  /** Search cooldown; a fresh villager simply tries again. */
+  retry: 'transient',
+
+  name: 'save', age: 'save', lifespan: 'save',
+  homeId: 'save', jobId: 'save', familyId: 'save',
+  x: 'save', y: 'save', facing: 'save',
+  action: 'save', activity: 'save', carry: 'save',
+  targetB: 'save', fetchRes: 'save', fetchAmt: 'save', targetNode: 'save',
+  jobDestOverride: 'save', lastPickupB: 'save',
+  workTimer: 'save', skill: 'save', educated: 'save', health: 'save', hasOx: 'save',
+} satisfies Descriptor<Villager>;
+
+export const VILLAGER_CODECS: Codecs<Villager> = {};
