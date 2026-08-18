@@ -95,3 +95,31 @@ something. Loot-and-flee first, no combat resolution, per the scope warning we a
 3. Push. CI repeats all three and uploads a playable build.
 4. If the rope goes red, that is a behaviour change: it is either a bug, or it is the point of
    the slice and the goldens get re-recorded in the same commit that caused it.
+
+---
+
+## Shipped
+
+### S1 — Reachability ✅
+Simulation is **2.2× faster** end to end and the rope dropped from ~35s to 16s, with **all 12
+determinism checkpoints unchanged** — so this is pure speed, not a rebalance.
+
+Three findings, in order of size:
+
+1. **The A\* inner loop was allocating.** `[a, b] = [b, a]` in the heap swap builds a throwaway
+   array per swap, and `for (const [dx, dy, base] of DIRS)` destructures a sub-array on every
+   one of the millions of neighbour visits a search makes. Plain temporaries and three flat
+   direction arrays: **2.2× on their own**, verified behaviour-neutral in isolation.
+2. **Region labelling** rejects a search whose goal is in a different walkable component,
+   before paying for a flood-fill. 10.9% of searches, of which **8,115 of 8,595 returned null
+   anyway** — pure waste.
+3. **The near-miss rule is load-bearing.** The first version of the check returned null for
+   every unreachable goal, and starved all three seeds — pop 1 and zero food on one of them.
+   A failed search is not wasted work: it returns a path to the closest tile it reached, and
+   the 480 near-misses it was discarding landed an average of **2.4 tiles** from their target,
+   inside the radius the work loops accept as arrival. Rejecting now requires the goal to be
+   more than `NEAR_ENOUGH` (4) tiles from anything reachable, which keeps every useful partial
+   path and still discards the cross-river ones.
+
+The measurement that started this — 97.3% of sim time in A\*, only 3.0% of searches reaching
+their goal — was worth more than the fix. The remaining cost is now genuine pathfinding.

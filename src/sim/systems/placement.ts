@@ -81,6 +81,8 @@ export function place(g: Game, defId: string, x: number, y: number, w?: number, 
 
 export function registerFootprint(g: Game, b: Building): void {
   const w = g.world;
+  // Anything with a footprint changes where people can walk.
+  w.invalidateRegions();
   for (let y = b.y; y < b.y + b.h; y++) {
     for (let x = b.x; x < b.x + b.w; x++) {
       if (w.inBounds(x, y)) {
@@ -112,6 +114,7 @@ export function registerFootprint(g: Game, b: Building): void {
 
 export function unregisterFootprint(g: Game, b: Building): void {
   const w = g.world;
+  w.invalidateRegions();
   for (let y = b.y; y < b.y + b.h; y++) {
     for (let x = b.x; x < b.x + b.w; x++) {
       if (w.inBounds(x, y)) {

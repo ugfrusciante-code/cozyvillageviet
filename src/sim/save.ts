@@ -171,6 +171,8 @@ export function deserialize(raw: SaveData): Game {
   rleDecodeInto(data.world.road, w.road);
   rleDecodeInto(data.world.softBlock, w.softBlock);
   g.regrowKind = new Map(data.world.regrowKind.map(([i, k]) => [i, k as NodeKind]));
+  // Roads and soft-blocked field tiles just changed under us.
+  w.invalidateRegions();
 
   g.rngState = data.rngState;
   g.t = data.t; g.day = data.day; g.year = data.year; g.season = data.season;
