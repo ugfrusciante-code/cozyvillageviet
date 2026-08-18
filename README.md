@@ -58,7 +58,7 @@ of the working day.
 - **Time**: 24h day (60s at 1×), 4 days a season, 4 seasons a year. Speeds 1×–10×, space to pause.
 - **Seasons**: winter burns 4× the firewood, stops the foragers and slows every worker.
   Fields are sown in spring and reaped in autumn.
-- **Economy**: 28 resources across five categories, ~45 buildings, deep production chains.
+- **Economy**: 31 resources across five categories, 53 buildings, chains up to four conversions deep (logs → firewood → charcoal → iron → tools).
   Trade prices at the Trading Post move against you as you flood or drain a market, then drift back.
 - **Population**: villagers age, learn their trade (a School raises the skill ceiling for life),
   fall ill, have children when content and well fed, and leave when they are not.

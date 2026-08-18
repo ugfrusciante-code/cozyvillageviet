@@ -5,6 +5,7 @@
 
 export type ResId =
   | 'logs' | 'planks' | 'stone' | 'clay' | 'bricks' | 'iron_ore' | 'iron' | 'tools' | 'firewood'
+  | 'charcoal'
   | 'grain' | 'flour' | 'bread' | 'berries' | 'fish' | 'meat' | 'honey' | 'herbs' | 'eggs'
   | 'beans' | 'turnips'
   | 'hide' | 'leather' | 'shoes' | 'wool' | 'cloth' | 'clothes'
@@ -51,6 +52,7 @@ export const RESOURCES: Record<ResId, ResourceDef> = Object.fromEntries(
     R('iron', 'Iron', '⚙️', 'material', 14),
     R('tools', 'Tools', '🔨', 'material', 30),
     R('firewood', 'Firewood', '🔥', 'fuel', 5, { fuel: true }),
+    R('charcoal', 'Charcoal', '⬛', 'material', 8),
 
     R('grain', 'Grain', '🌾', 'material', 6),
     R('flour', 'Flour', '🥣', 'material', 10),
@@ -427,10 +429,20 @@ export const BUILDINGS: BuildingDef[] = [
     height: 2.1, palette: 'brick',
   }),
   B({
+    id: 'charburner', name: 'Charcoal Burner', cat: 'crafting', icon: '🪵',
+    desc: 'Slow-burns firewood under turf into charcoal, the only fuel that smelts iron.',
+    size: [2, 2], cost: { logs: 10, stone: 4 }, buildWork: 35, jobs: 1,
+    recipe: { in: { firewood: 3 }, out: { charcoal: 2 }, work: 20 },
+    height: 1.8, palette: 'stone',
+  }),
+  B({
     id: 'smelter', name: 'Smelter', cat: 'crafting', icon: '🔩',
     desc: 'Ore and charcoal in, iron out. Hungry for firewood.',
     size: [3, 3], cost: { logs: 18, stone: 16 }, buildWork: 65, jobs: 2,
-    recipe: { in: { iron_ore: 2, firewood: 2 }, out: { iron: 1 }, work: 24 },
+    // The description always said charcoal; now the recipe means it. Ore is
+    // depth 1, but the fuel under it is logs -> firewood -> charcoal, which
+    // makes iron the deepest thing the valley produces.
+    recipe: { in: { iron_ore: 2, charcoal: 2 }, out: { iron: 1 }, work: 24 },
     height: 3.0, palette: 'stone',
   }),
   B({

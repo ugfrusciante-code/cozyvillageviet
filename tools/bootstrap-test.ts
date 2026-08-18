@@ -83,7 +83,44 @@ const constructionOnly = (Object.keys(RESOURCES) as ResId[]).filter((r) => {
   const usedAsCost = BUILDINGS.some((d) => r in d.cost);
   return !consumedByRecipe && !isHousehold && usedAsCost;
 });
-console.log(`\nINFO construction-only sinks (Phase 2 target): ${constructionOnly.join(', ') || 'none'}`);
+console.log(`\nINFO construction-only sinks (tools wear out via TUNING.toolWear, so they no longer belong here; the rest are Phase 2 targets): ${constructionOnly.join(', ') || 'none'}`);
 
 console.log(failures === 0 ? '\nAll bootstrap checks passed.' : `\n${failures} check(s) failed.`);
+// --- Chain depth: the economy's shape, asserted. Depth 1 is anything pulled
+// straight from the world; each recipe adds one. The plan's bar is at least
+// four conversions end to end, which charcoal smelting provides:
+// logs -> firewood -> charcoal -> iron -> tools.
+{
+  const depth = new Map<string, number>();
+  const harvested = new Set<string>();
+  for (const d of BUILDINGS) {
+    if (d.harvest) {
+      harvested.add(d.harvest.out);
+      for (const k in d.harvest.extra ?? {}) harvested.add(k);
+    }
+    if (d.crop) for (const c of Object.values(CROPS)) harvested.add(c.out);
+  }
+  for (const h of harvested) depth.set(h, 1);
+  // Relax until fixed point: a recipe's outputs sit one above its deepest input.
+  for (let pass = 0; pass < 12; pass++) {
+    for (const d of BUILDINGS) {
+      if (!d.recipe) continue;
+      let worst = 0;
+      let ready = true;
+      for (const k in d.recipe.in) {
+        const di = depth.get(k);
+        if (di === undefined) { ready = false; break; }
+        worst = Math.max(worst, di);
+      }
+      if (!ready) continue;
+      for (const k in d.recipe.out) {
+        depth.set(k, Math.max(depth.get(k) ?? 0, worst + 1));
+      }
+    }
+  }
+  const deepest = [...depth.entries()].sort((a, b) => b[1] - a[1])[0];
+  const conversions = deepest[1] - 1;
+  check(conversions >= 4, `the longest chain runs ${conversions} conversions (${deepest[0]} is depth ${deepest[1]})`);
+}
+
 process.exit(failures === 0 ? 0 : 1);
