@@ -11,6 +11,8 @@ import {
 import { NODE_INDEX } from '../sim/world';
 import type { Building } from '../sim/building';
 import type { Game } from '../sim/game';
+import { backlog, storageCapacity, storageUsed } from '../sim/systems/inventory';
+import { foodDaysLeft } from '../sim/systems/labour';
 import type { Villager } from '../sim/villager';
 
 const SEASON_COLOR: Record<string, string> = {
@@ -53,6 +55,9 @@ export class UI {
   private lastLogCount = 0;
   private tradeOpen = false;
   private peopleOpen = false;
+  private ledgerOpen = false;
+  /** The ledger re-renders once a second, not per UI tick. */
+  private ledgerDrawn = 0;
   private minimapDirty = 0;
 
   constructor(private game: Game, private cb: UICallbacks) {
@@ -69,6 +74,13 @@ export class UI {
     $('people-close').onclick = () => this.closePeople();
     $('help-close').onclick = () => $('help').classList.add('hidden');
     $('btn-help').onclick = () => $('help').classList.toggle('hidden');
+
+    $('btn-ledger').onclick = () => {
+      this.ledgerOpen = !this.ledgerOpen;
+      $('ledger').classList.toggle('hidden', !this.ledgerOpen);
+      if (this.ledgerOpen) { this.ledgerDrawn = 0; this.renderLedger(); }
+    };
+    $('ledger-close').onclick = () => { this.ledgerOpen = false; $('ledger').classList.add('hidden'); };
 
     $('btn-menu').onclick = () => {
       $('menu-status').textContent = this.cb.saveStatus();
@@ -313,6 +325,7 @@ export class UI {
     if (this.selectedBuilding || this.selectedVillager) this.renderInspector();
     if (this.tradeOpen) this.renderTrade();
     if (this.peopleOpen) this.renderPeople();
+    if (this.ledgerOpen && performance.now() - this.ledgerDrawn > 1000) this.renderLedger();
   }
 
   private renderResources(): void {
@@ -730,6 +743,73 @@ export class UI {
     }
   }
 
+  // ----------------------------------------------------------------- ledger
+
+  /**
+   * The numbers the village has been keeping all along, finally on a page:
+   * 240 days of coin, heads and contentment, today's flows including what
+   * rotted, and where the hands actually are. The spec calls this the
+   * "is the economy producing but failing to move goods?" panel.
+   */
+  private renderLedger(): void {
+    this.ledgerDrawn = performance.now();
+    const g = this.game;
+    const out: string[] = [];
+
+    out.push('<div class="ledger-sparks">');
+    const sparks: [string, string, number[]][] = [
+      ['Coin', `${Math.round(g.coin)}`, g.stats.coinHistory],
+      ['People', `${g.population}`, g.stats.popHistory],
+      ['Content', `${Math.round(g.averageContentment * 100)}%`, g.stats.contentHistory],
+    ];
+    for (const [label, now, series] of sparks) {
+      out.push(`<div class="spark"><div class="lbl"><span>${label}</span><b>${now}</b></div>` +
+        `<canvas data-spark="${label}" width="220" height="42"></canvas></div>`);
+      void series;
+    }
+    out.push('</div>');
+
+    // Today's flows: what was made, eaten, and lost to rot.
+    out.push('<div class="section">Today</div>');
+    out.push('<table class="ledger-table"><tr><th>Good</th><th>Made</th><th>Used</th><th>Rotted</th><th>Store</th></tr>');
+    const rows: ResId[] = [...FOOD_TYPES, 'firewood'];
+    for (const r of rows) {
+      const made = g.stats.producedToday[r] ?? 0;
+      const used = g.stats.consumedToday[r] ?? 0;
+      const rot = g.stats.spoiledToday[r] ?? 0;
+      const have = g.stockOf(r);
+      if (made < 0.05 && used < 0.05 && rot < 0.05 && have < 0.5) continue;
+      out.push(`<tr><td>${RESOURCES[r].icon} ${RESOURCES[r].name}</td>` +
+        `<td class="${made > 0.05 ? 'pos' : ''}">${made > 0.05 ? `+${made.toFixed(1)}` : '·'}</td>` +
+        `<td>${used > 0.05 ? `−${used.toFixed(1)}` : '·'}</td>` +
+        `<td class="${rot > 0.05 ? 'neg' : ''}">${rot > 0.05 ? `−${rot.toFixed(1)}` : '·'}</td>` +
+        `<td>${Math.round(have)}</td></tr>`);
+    }
+    out.push('</table>');
+
+    // Labour and logistics: the "producing but not moving" diagnostics.
+    const starved = [...g.buildings.values()].filter((b) =>
+      b.state === 'active' && b.workers.length > 0 && b.status.startsWith('Waiting for')).length;
+    const receipts = g.hauls.size;
+    const cap = storageCapacity(g);
+    out.push('<div class="section">Hands and haulage</div>');
+    out.push('<table class="ledger-table">');
+    out.push(`<tr><td>Working / adults</td><td>${g.employed} / ${g.adults}</td></tr>`);
+    out.push(`<tr><td>Labour pool</td><td>${g.idleAdults}</td></tr>`);
+    out.push(`<tr><td>Hauls under way</td><td>${receipts}</td></tr>`);
+    out.push(`<tr><td>Workshops waiting on inputs</td><td class="${starved ? 'neg' : ''}">${starved}</td></tr>`);
+    out.push(`<tr><td>Goods awaiting a haulier</td><td>${Math.round(backlog(g))}</td></tr>`);
+    out.push(`<tr><td>Storage</td><td>${Math.round(storageUsed(g))} / ${Math.round(cap)}</td></tr>`);
+    out.push(`<tr><td>Days of food in store</td><td>${foodDaysLeft(g).toFixed(1)}</td></tr>`);
+    out.push('</table>');
+
+    $('ledger-body').innerHTML = out.join('');
+    for (const [label, , series] of sparks) {
+      const canvas = document.querySelector(`[data-spark="${label}"]`) as HTMLCanvasElement | null;
+      if (canvas) drawSpark(canvas, series);
+    }
+  }
+
   // ------------------------------------------------------------------ trade
 
   openTrade(): void { this.tradeOpen = true; $('trade').classList.remove('hidden'); this.renderTrade(); }
@@ -835,4 +915,25 @@ export class UI {
     this.game.log(msg, kind);
     this.lastLogCount = -1;
   }
+}
+
+/** A tiny line chart: 240 days of one number, no axes, no library. */
+function drawSpark(canvas: HTMLCanvasElement, series: number[]): void {
+  const ctx = canvas.getContext('2d');
+  if (!ctx || series.length < 2) return;
+  const w = canvas.width, h = canvas.height;
+  ctx.clearRect(0, 0, w, h);
+  let min = Infinity, max = -Infinity;
+  for (const v of series) { if (v < min) min = v; if (v > max) max = v; }
+  if (max - min < 1e-9) { min -= 1; max += 1; }
+  const pad = 3;
+  ctx.beginPath();
+  for (let i = 0; i < series.length; i++) {
+    const x = pad + (i / (series.length - 1)) * (w - pad * 2);
+    const y = h - pad - ((series[i] - min) / (max - min)) * (h - pad * 2);
+    if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+  }
+  ctx.strokeStyle = 'rgba(122, 90, 58, 0.85)';
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
 }

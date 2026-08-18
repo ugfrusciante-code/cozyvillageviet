@@ -28,6 +28,7 @@
 
       <div class="pill stats" id="stats"></div>
 
+      <div class="pill ghost-btn" id="btn-ledger" title="The village ledger: history, flows, labour">📊</div>
       <div class="pill ghost-btn" id="btn-menu" title="Save, load, new village">☰</div>
       <div class="pill ghost-btn" id="btn-help" title="Controls">?</div>
     </header>
@@ -91,6 +92,17 @@
           <b>buy&nbsp;‹</b> tops the store up to it. Leave blank to do nothing.
         </p>
         <div id="trade-list"></div>
+      </div>
+    </div>
+
+    <!-- Ledger: history, flows, labour -->
+    <div id="ledger" class="modal hidden">
+      <div class="modal-card">
+        <div class="panel-head">
+          <h2>Village Ledger</h2>
+          <button class="icon-btn" id="ledger-close">×</button>
+        </div>
+        <div id="ledger-body"></div>
       </div>
     </div>
 
