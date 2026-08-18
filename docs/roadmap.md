@@ -85,8 +85,14 @@ map edge, fills a sack each at the richest store (only ever from `available()`, 
 stay honest mid-raid), and leaves; every household carries the shock for four days. Nobody
 dies, nothing burns. Launch reachability judges the target by its walkable neighbourhood —
 the exact-entrance-tile version silently cancelled 13 of 14 raids. Cadence after tuning: ~1
-raid per 1.5–2 years on a modest village, absorbed at stable population. Militia, defence
-buildings and combat stay open for the second pass.
+raid per 1.5–2 years on a modest village, absorbed at stable population.
+
+**Second pass shipped — the watch.** A watchtower with one real job slot: manned, it turns a
+rider back and forces half-sacks; enough towers and the band never forms. In peacetime the
+job sits just above idle; the moment riders are sighted it jumps to URGENT, so someone drops
+their hammer and runs for the ladder — defence consuming civilian labour through the
+ordinary job machinery, which is the spec's warfare contract at cozy scale. Combat
+resolution stays deliberately unbuilt.
 
 ### Phase 9 — Milestones ✅
 Thirteen derived-stat firsts in the ledger, dated by year, three nearest goals barred up.
