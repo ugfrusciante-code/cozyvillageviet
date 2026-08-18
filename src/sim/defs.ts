@@ -595,6 +595,12 @@ export const BUILDINGS: BuildingDef[] = [
     height: 2.5, palette: 'timber',
   }),
   B({
+    id: 'bridge', name: 'Bridge', cat: 'logistics', icon: '🌉',
+    desc: 'Planks over the water. The river stops deciding where your village ends.',
+    size: [1, 1], cost: { logs: 2, planks: 2 }, buildWork: 2, jobs: 0,
+    height: 0.3, palette: 'timber',
+  }),
+  B({
     id: 'road', name: 'Road', cat: 'logistics', icon: '🛤️',
     desc: 'Villagers walk 70% faster on roads. The cheapest productivity upgrade there is.',
     size: [1, 1], cost: { stone: 1 }, buildWork: 2, jobs: 0,

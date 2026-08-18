@@ -84,6 +84,8 @@ export interface SaveData {
   world: {
     fertility: RLE; node: RLE; nodeAmt: RLE; regrowAt: RLE;
     road: RLE; softBlock: RLE;
+    /** Absent in saves older than bridges; nothing was decked back then. */
+    bridge?: RLE;
     regrowKind: [number, string][];
   };
   buildings: Saved[];
@@ -138,6 +140,7 @@ export function serialize(g: Game, label = 'Manual save'): SaveData {
       regrowAt: rleEncode(w.regrowAt),
       road: rleEncode(w.road),
       softBlock: rleEncode(w.softBlock),
+      bridge: rleEncode(w.bridge),
       regrowKind: [...g.regrowKind.entries()].map(([i, k]) => [i, k] as [number, string]),
     },
     buildings: [...g.buildings.values()].map((b) => encode(b, BUILDING_PERSIST, BUILDING_CODECS)),
@@ -178,6 +181,7 @@ export function deserialize(raw: SaveData): Game {
   rleDecodeInto(data.world.regrowAt, w.regrowAt);
   rleDecodeInto(data.world.road, w.road);
   rleDecodeInto(data.world.softBlock, w.softBlock);
+  if (data.world.bridge) rleDecodeInto(data.world.bridge, w.bridge);
   g.regrowKind = new Map(data.world.regrowKind.map(([i, k]) => [i, k as NodeKind]));
   // Roads and soft-blocked field tiles just changed under us.
   w.invalidateRegions();

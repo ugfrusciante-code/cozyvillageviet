@@ -100,6 +100,8 @@ export class World {
   /** Fertility as generated — farming drains toward 0, rest recovers toward this. */
   readonly fertilityBase: Float32Array;
   readonly water: Uint8Array;
+  /** Tiles decked over: water a villager can walk across. */
+  readonly bridge: Uint8Array;
   /** Index into NODE_KINDS. */
   readonly node: Uint8Array;
   /** Remaining harvests left in this node. */
@@ -123,6 +125,7 @@ export class World {
     this.fertility = new Float32Array(n);
     this.fertilityBase = new Float32Array(n);
     this.water = new Uint8Array(n);
+    this.bridge = new Uint8Array(n);
     this.node = new Uint8Array(n);
     this.nodeAmt = new Uint8Array(n);
     this.regrowAt = new Float32Array(n).fill(-1);
@@ -257,8 +260,8 @@ export class World {
   walkable(x: number, y: number): boolean {
     if (!this.inBounds(x, y)) return false;
     const i = this.idx(x, y);
-    if (this.water[i]) return false;
-    if (this.occupied[i] >= 0 && !this.road[i] && !this.softBlock[i]) return false;
+    if (this.water[i] && !this.bridge[i]) return false;
+    if (this.occupied[i] >= 0 && !this.road[i] && !this.softBlock[i] && !this.bridge[i]) return false;
     return true;
   }
 
@@ -362,6 +365,7 @@ export class World {
   stepCost(x: number, y: number): number {
     const i = this.idx(x, y);
     if (this.road[i]) return 0.6;
+    if (this.bridge[i]) return 0.8; // sound planks, but single file
     if (this.softBlock[i]) return 1.35; // trudging between the furrows
     if (this.node[i] === NODE_INDEX['tree']) return 1.4;
     return 1.0;

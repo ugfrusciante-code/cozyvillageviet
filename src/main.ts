@@ -193,7 +193,7 @@ canvas.addEventListener('pointerdown', (e) => {
   if (e.button === 0 && pendingDef) {
     setNdc(e);
     const def = BUILDING_BY_ID[pendingDef];
-    if (pendingDef === 'road') roadDragFrom = view.pickTile(ndc);
+    if (pendingDef === 'road' || pendingDef === 'bridge') roadDragFrom = view.pickTile(ndc);
     else if (def.zone) zoneDrag = view.pickTile(ndc);
   }
 });
@@ -215,9 +215,9 @@ window.addEventListener('pointerup', (e) => {
   setNdc(e);
 
   // Drag-drawn roads.
-  if (pendingDef === 'road' && roadDragFrom) {
+  if ((pendingDef === 'road' || pendingDef === 'bridge') && roadDragFrom) {
     const to = view.pickTile(ndc);
-    if (to) placeRoadLine(roadDragFrom, to);
+    if (to) placeRoadLine(pendingDef, roadDragFrom, to);
     roadDragFrom = null;
     return;
   }
@@ -329,17 +329,17 @@ function tryPlace(defId: string, x: number, y: number, keep: boolean): void {
   if (!keep) { pendingDef = null; ui.setBuildSelection(null); }
 }
 
-function placeRoadLine(a: { x: number; y: number }, b: { x: number; y: number }): void {
+function placeRoadLine(defId: string, a: { x: number; y: number }, b: { x: number; y: number }): void {
   const steps = Math.max(Math.abs(b.x - a.x), Math.abs(b.y - a.y));
   let laid = 0;
   for (let i = 0; i <= steps; i++) {
     const t = steps === 0 ? 0 : i / steps;
     const x = Math.round(a.x + (b.x - a.x) * t);
     const y = Math.round(a.y + (b.y - a.y) * t);
-    if (game.canPlace('road', x, y).ok && game.place('road', x, y)) laid++;
+    if (game.canPlace(defId, x, y).ok && game.place(defId, x, y)) laid++;
   }
   if (laid) view.markTerrainDirty();
-  else ui.toast('No room for a road there', 'bad');
+  else ui.toast(defId === 'bridge' ? 'Bridges want open water' : 'No room for a road there', 'bad');
 }
 
 // --------------------------------------------------------------- selection

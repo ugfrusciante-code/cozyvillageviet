@@ -13,6 +13,7 @@ import {
 import { C } from './palette';
 import type { Building } from '../sim/building';
 import type { Game } from '../sim/game';
+import { WATER_LEVEL } from '../sim/world';
 
 const mat = (color: number, opts: { flat?: boolean; transparent?: boolean; opacity?: number } = {}) =>
   new MeshLambertMaterial({
@@ -122,6 +123,26 @@ export function makeBuildingMesh(b: Building): BuildingVisual {
       m.position.y = 0.045;
       m.receiveShadow = true;
       built.add(m);
+      break;
+    }
+    case 'bridge': {
+      // A plank deck pinned above the waterline on two posts. groundY here is
+      // the riverbed, so the deck rides at a fixed height over the water
+      // plane rather than the terrain.
+      const deckY = WATER_LEVEL + 0.12 - b.groundY;
+      const deck = new Mesh(new BoxGeometry(1.04, 0.1, 1.04), mat(C.timber));
+      deck.position.y = deckY;
+      deck.receiveShadow = true;
+      const rails = new Mesh(new BoxGeometry(1.04, 0.16, 0.08), mat(C.timberDark ?? C.timber));
+      rails.position.set(0, deckY + 0.12, 0.46);
+      const rails2 = rails.clone();
+      rails2.position.z = -0.46;
+      for (const sx of [-0.38, 0.38]) {
+        const post = new Mesh(new CylinderGeometry(0.06, 0.07, deckY + 0.25, 6), mat(C.timber));
+        post.position.set(sx, (deckY + 0.25) / 2 - 0.2, 0);
+        built.add(post);
+      }
+      built.add(deck, rails, rails2);
       break;
     }
     case 'field': {

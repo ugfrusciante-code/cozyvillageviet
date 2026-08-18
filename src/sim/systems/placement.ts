@@ -33,6 +33,16 @@ export function canPlace(g: Game, defId: string, x: number, y: number, w?: numbe
       }
     }
   }
+  // A bridge is the one thing that WANTS water: exactly one open water tile,
+  // judged here because the terrain check would refuse it on principle.
+  if (def.id === 'bridge') {
+    if (!g.world.inBounds(x, y)) return { ok: false, reason: 'Out of the valley' };
+    const i = g.world.idx(x, y);
+    if (!g.world.water[i]) return { ok: false, reason: 'Bridges go over water' };
+    if (g.world.bridge[i]) return { ok: false, reason: 'Already decked' };
+    if (g.world.occupied[i] >= 0) return { ok: false, reason: 'Something is already here' };
+    return { ok: true };
+  }
   const maxSlope = def.cat === 'decor' || def.id === 'road' ? 3.0 : def.zone ? 2.2 : 1.6;
   const base = g.world.canPlace(x, y, fw, fh, maxSlope);
   if (!base.ok) return base;
@@ -62,7 +72,8 @@ export function place(g: Game, defId: string, x: number, y: number, w?: number, 
   b.computeEntrance(g.world);
   b.state = 'building';
   // Roads and tiny decorations go up instantly — no site, no haulage.
-  if (b.def.id === 'road' || (b.def.buildWork <= 8 && Object.keys(b.def.cost).length <= 1)) {
+  if (b.def.id === 'road' || b.def.id === 'bridge'
+    || (b.def.buildWork <= 8 && Object.keys(b.def.cost).length <= 1)) {
     const cost = b.buildCost();
     let affordable = true;
     for (const k in cost) {
@@ -89,15 +100,16 @@ export function registerFootprint(g: Game, b: Building): void {
         const i = w.idx(x, y);
         w.occupied[i] = b.id;
         if (b.defId === 'road') w.road[i] = 1;
+        if (b.defId === 'bridge') w.bridge[i] = 1;
         if (b.def.zone) w.softBlock[i] = 1; // fields are walked through, not around
-        // Clear whatever was growing here.
-        if (b.defId !== 'road' && w.node[i] !== 0) w.clearNode(i);
+        // Clear whatever was growing here. (Nothing grows mid-river.)
+        if (b.defId !== 'road' && b.defId !== 'bridge' && w.node[i] !== 0) w.clearNode(i);
       }
     }
   }
   // Villagers clear the trees immediately around anything they raise, so the
   // settlement reads as a clearing rather than being swallowed by the forest.
-  if (b.defId !== 'road' && b.def.cat !== 'decor') {
+  if (b.defId !== 'road' && b.defId !== 'bridge' && b.def.cat !== 'decor') {
     for (let y = b.y - 1; y <= b.y + b.h; y++) {
       for (let x = b.x - 1; x <= b.x + b.w; x++) {
         if (!w.inBounds(x, y)) continue;
@@ -121,6 +133,7 @@ export function unregisterFootprint(g: Game, b: Building): void {
         const i = w.idx(x, y);
         if (w.occupied[i] === b.id) { w.occupied[i] = -1; w.softBlock[i] = 0; }
         if (b.defId === 'road') w.road[i] = 0;
+        if (b.defId === 'bridge') w.bridge[i] = 0;
       }
     }
   }
