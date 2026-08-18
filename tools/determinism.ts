@@ -24,7 +24,8 @@ import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { runVillage } from './driver';
-import { stateHash, type StateHash } from './assert';
+import { stateHash, auditReservations, type StateHash } from './assert';
+import { FOOD_TYPES, TUNING } from '../src/sim/defs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const GOLDEN = join(HERE, 'golden-hashes.json');
@@ -35,6 +36,8 @@ const LADDER = [25, 50, 100, 150, 250, 400];
 
 type Marks = Record<string, StateHash>;
 type Golden = Record<string, Marks>;
+/** Hashes plus a human-readable line, so a green run is also a health check. */
+type Run = { marks: Marks; summary: string };
 
 const args = process.argv.slice(2);
 const update = args.includes('--update');
@@ -42,7 +45,7 @@ const days = Number(args.find((a) => /^\d+$/.test(a)) ?? 150);
 const checkpoints = [...LADDER.filter((d) => d < days), days];
 
 /** Play one seed and hash it at each checkpoint. */
-function measure(seed: number): Marks {
+function measure(seed: number): Run {
   const marks: Marks = {};
   let next = 0;
   const g = runVillage(seed, days, {
@@ -56,7 +59,12 @@ function measure(seed: number): Marks {
   // The loop stops the moment `day` reaches `days`, which can be before noon,
   // so the final checkpoint may not have fired from inside `onDay`.
   if (!marks[`d${days}`]) marks[`d${days}`] = stateHash(g);
-  return marks;
+  const food = FOOD_TYPES.reduce((s, f) => s + g.stockOf(f), 0);
+  const summary = `pop ${g.population}, ${g.buildings.size} buildings, `
+    + `${(g.averageContentment * 100).toFixed(0)}% content, `
+    + `${(food / Math.max(1, g.population * TUNING.foodPerDay)).toFixed(1)}d food, `
+    + `ledger ${auditReservations(g).length ? 'LEAKING' : 'balanced'}`;
+  return { marks, summary };
 }
 
 // A worker run: one seed, one JSON line on stdout.
@@ -66,7 +74,7 @@ if (args.includes('--worker')) {
   process.exit(0);
 }
 
-function runSeed(seed: number): Promise<Marks> {
+function runSeed(seed: number): Promise<Run> {
   return new Promise((resolve, reject) => {
     const child = spawn(TSX, [fileURLToPath(import.meta.url), String(days), '--worker', String(seed)], {
       stdio: ['ignore', 'pipe', 'inherit'],
@@ -76,7 +84,7 @@ function runSeed(seed: number): Promise<Marks> {
     child.on('error', reject);
     child.on('close', (code) => {
       if (code !== 0) reject(new Error(`seed ${seed} exited ${code}`));
-      else resolve(JSON.parse(out) as Marks);
+      else resolve(JSON.parse(out) as Run);
     });
   });
 }
@@ -84,13 +92,13 @@ function runSeed(seed: number): Promise<Marks> {
 const t0 = Date.now();
 console.log(`=== determinism: ${SEEDS.length} seeds × ${days} days ===`);
 const results = await Promise.all(SEEDS.map(runSeed));
-const observed: Golden = Object.fromEntries(SEEDS.map((s, i) => [String(s), results[i]]));
+const observed: Golden = Object.fromEntries(SEEDS.map((s, i) => [String(s), results[i].marks]));
 console.log(`ran in ${((Date.now() - t0) / 1000).toFixed(0)}s`);
+SEEDS.forEach((s, i) => console.log(`  seed ${s}: ${results[i].summary}`));
 
 if (update) {
   writeFileSync(GOLDEN, `${JSON.stringify(observed, null, 2)}\n`);
-  for (const s of SEEDS) console.log(`  seed ${s}  d${days} ${observed[String(s)][`d${days}`].all}`);
-  console.log('\nRecorded → tools/golden-hashes.json');
+  console.log('Recorded → tools/golden-hashes.json');
   process.exit(0);
 }
 

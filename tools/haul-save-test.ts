@@ -9,6 +9,7 @@ import { Game } from '../src/sim/game';
 import { serialize, deserialize } from '../src/sim/save';
 import { BUILDING_BY_ID, type ResId } from '../src/sim/defs';
 import { RNG } from '../src/sim/world';
+import { auditReservations } from './assert';
 
 let failures = 0;
 const check = (ok: boolean, label: string, detail = '') => {
@@ -49,6 +50,12 @@ for (let i = 0; i < 60000; i++) {
   }
 }
 check(midTrip.length >= 2, 'found villagers mid-haul to test with', `${midTrip.length} in transit`);
+
+// The ledger must already balance *before* the save: a leak here would make
+// every later check meaningless, because there would be nothing consistent to
+// round-trip. This reconstructs both sides from who is actually walking where.
+const liveLedger = auditReservations(g);
+check(liveLedger.length === 0, 'hauling ledger balances during play', liveLedger.slice(0, 3).join('; '));
 
 // Total goods in the world before the save.
 const ALL: ResId[] = ['logs', 'planks', 'firewood', 'berries', 'meat', 'grain', 'bread', 'stone'];
@@ -109,6 +116,10 @@ for (let i = 0; i < 6000; i++) g2.update(1 / 12);
 const afterRun = worldTotal(g2);
 check(afterRun >= after - 0.001, 'village keeps running after load without losing goods',
   `${after.toFixed(2)} → ${afterRun.toFixed(2)}, ${carriedBefore} loads were in hand`);
+
+// 8. …and the rebuilt ledger stays balanced once hauling resumes.
+const rerun = auditReservations(g2);
+check(rerun.length === 0, 'hauling ledger balances again after load', rerun.slice(0, 3).join('; '));
 
 console.log(failures === 0 ? '\nAll haul-save checks passed.' : `\n${failures} check(s) failed.`);
 process.exit(failures === 0 ? 0 : 1);

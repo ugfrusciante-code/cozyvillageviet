@@ -9,6 +9,7 @@
 
 import { FOOD_TYPES, TUNING, type ResId } from '../src/sim/defs';
 import { runVillage } from './driver';
+import { auditReservations } from './assert';
 import type { Game } from '../src/sim/game';
 
 const DAYS = Number(process.argv[2] ?? 70);
@@ -56,5 +57,9 @@ const stalled = [...g.buildings.values()]
   .map((b) => `${b.name}: ${b.status}`);
 console.log(`stalled workplaces (${stalled.length}):`);
 for (const s of [...new Set(stalled)].slice(0, 14)) console.log('  -', s);
+const ledger = auditReservations(g);
+console.log(`\nhauling ledger: ${ledger.length ? `${ledger.length} discrepancies` : 'balanced'}`);
+for (const p of ledger.slice(0, 8)) console.log('  -', p);
+
 console.log('\nrecent events:');
 for (const e of g.events.slice(-12)) console.log(`  d${e.day} [${e.kind}] ${e.text}`);

@@ -20,6 +20,30 @@ const FIRST = [
   'Ulric', 'Verity', 'Wren', 'Yarrow', 'Zeph', 'Marlow', 'Odette', 'Bram', 'Clover', 'Elowen',
   'Fable', 'Gwyn', 'Hollis', 'Isolde', 'Jory', 'Kit', 'Lark', 'Mabel', 'Nyle', 'Opal',
 ];
+/** One hauling trip, as asked for by a work loop. See `Villager.beginHaul`. */
+interface HaulRequest {
+  /** Where the goods are collected from. */
+  from: Building;
+  res: ResId;
+  /** How much to ask for, before capacity and stock clamp it down. */
+  want: number;
+  /**
+   * Who the load is pledged to. `null` means "collect it, decide on arrival" —
+   * the porter loops, which clear a workshop without yet knowing which store
+   * has room.
+   */
+  to: Building | null;
+  /** Below this the walk is not worth making. */
+  min: number;
+  verb: 'fetch' | 'collect' | 'site';
+  /**
+   * Load to weigh an ox against. Defaults to what can actually be picked up;
+   * the restocking loop deliberately sizes on what was *asked* for instead, so
+   * a big standing order still yokes a cart when the source is running low.
+   */
+  cartHint?: number;
+}
+
 let nextVillagerId = 1;
 export function resetVillagerIds(): void { nextVillagerId = 1; }
 export function setNextVillagerId(n: number): void { nextVillagerId = n; }
@@ -165,7 +189,7 @@ export class Villager {
     // abandoned — and every claim it holds must be handed back, or the goods it
     // pledged stay locked out of the economy for good.
     if (night && this.action !== 'toDrop' && this.action !== 'toSite') {
-      if (this.action === 'toPickup' || this.fetchRes) this.cancelReservations(g);
+      if (this.action === 'toPickup' || this.fetchRes) this.cancelHaul(g);
       if (this.targetNode >= 0) { g.releaseNode(this.targetNode); this.targetNode = -1; }
       if (this.carry && this.action !== 'toHome' && this.action !== 'sleeping') {
         // Drop what we hold at the nearest store before turning in.
@@ -237,6 +261,17 @@ export class Villager {
       this.action = 'idle';
       return;
     }
+
+    // Already committed to a haul? See it through before doing anything else.
+    //
+    // Every loop below can walk away from a trip that is still in flight: the
+    // out-of-season branches call `stayAt`, a full output buffer calls
+    // `pickUpFrom`, a bench that got its inputs from a porter meanwhile just
+    // walks to the bench. Each of those overwrites `action` and strands the
+    // reservation the trip is holding — stock promised at the source and a
+    // delivery pledged at the destination, both claimed for ever by a villager
+    // who has forgotten about them.
+    if (this.action === 'toPickup' || this.action === 'toDrop') { this.doTrip(g, dt); return; }
 
     // Carrying something? Finish that trip first.
     if (this.carry) { this.doDeliver(g, dt); return; }
@@ -595,19 +630,7 @@ export class Villager {
       const need = want[res] ?? 0;
       const src = g.findSourceAny(res, b.cx, b.cy, Math.min(2, need));
       if (!src) continue;
-      this.maybeTakeCart(g, Math.min(need, src.available(res)));
-      const amt = Math.min(need, this.capacity, src.available(res));
-      if (amt < 0.5) continue;
-      if (!this.gotoBuilding(g, src)) continue;
-      src.reserveOut(res, amt);
-      b.addIncoming(res, amt);
-      this.targetB = src.id;
-      this.fetchRes = res;
-      this.fetchAmt = amt;
-      this.jobDestOverride = b.id;
-      this.action = 'toPickup';
-      this.activity = `Fetching ${RESOURCES[res].name.toLowerCase()}`;
-      return true;
+      if (this.beginHaul(g, { from: src, res, want: need, to: b, min: 0.5, verb: 'fetch' })) return true;
     }
     this.retry = 2.5;
     return false;
@@ -733,11 +756,6 @@ export class Villager {
   }
 
   /**
-   * Hand back every claim this villager holds: the stock reserved at a source
-   * and the delivery pledged to a destination. Leaking either one permanently
-   * removes those goods from circulation.
-   */
-  /**
    * Yoke an ox if the load is big enough to be worth the walk to the stable.
    * Small errands stay on foot so the oxen are there when a real haul appears.
    */
@@ -753,7 +771,50 @@ export class Villager {
     g.releaseOx();
   }
 
-  private cancelReservations(g: Game): void {
+  /**
+   * Start one hauling trip: size the load, yoke an ox if it is worth it, take
+   * the claims at both ends, and walk.
+   *
+   * Every haul in the game goes through here. It used to be five near-identical
+   * copies of this sequence, and the copies drifted — one of them leaked its
+   * reservations, which quietly froze goods out of the economy for good. Stock
+   * is now reserved at a source in exactly one place, and handed back in
+   * exactly one place (`cancelHaul`).
+   */
+  private beginHaul(g: Game, req: HaulRequest): boolean {
+    const { from, res, want } = req;
+    // The ox has to be decided before the load is sized: `capacity` is what a
+    // cart changes, so clamping first would mean no load is ever big enough to
+    // justify one.
+    this.maybeTakeCart(g, req.cartHint ?? Math.min(want, from.available(res)));
+    const amt = Math.min(want, this.capacity, from.available(res));
+    if (amt < req.min) return false;
+    if (!this.gotoBuilding(g, from)) return false;
+
+    from.reserveOut(res, amt);
+    // A haul with no destination is a porter clearing a workshop: nobody has
+    // promised to receive it yet, so the store is chosen on arrival.
+    req.to?.addIncoming(res, amt);
+
+    this.targetB = from.id;
+    this.fetchRes = res;
+    this.fetchAmt = amt;
+    this.jobDestOverride = req.to ? req.to.id : -1;
+    this.action = 'toPickup';
+    const name = RESOURCES[res].name.toLowerCase();
+    this.activity = req.verb === 'collect' ? `Collecting ${name}`
+      : req.verb === 'site' ? `Hauling ${name} to the site`
+      : `Fetching ${name}`;
+    return true;
+  }
+
+  /**
+   * Hand back every claim this haul holds: the stock reserved at the source
+   * and the delivery pledged to the destination. Leaking either one removes
+   * those goods from circulation permanently — this has shipped as a bug once
+   * already, which is why `beginHaul` is the only thing that takes the claims.
+   */
+  private cancelHaul(g: Game): void {
     this.releaseCart(g);
     if (this.fetchRes) {
       if (this.action === 'toPickup' && this.targetB >= 0) {
@@ -772,7 +833,7 @@ export class Villager {
   }
 
   private abortTrip(g: Game): void {
-    this.cancelReservations(g);
+    this.cancelHaul(g);
     this.targetB = -1;
     this.action = 'idle';
     this.retry = 1;
@@ -809,20 +870,9 @@ export class Villager {
     // 3. Storage workers act as porters for nearby workshops.
     if (b.isStorage) {
       const pickup = g.findPorterPickup(b, this.x, this.y);
-      if (pickup) {
-        const { from, res, avail } = pickup;
-        this.maybeTakeCart(g, avail);
-        const amt = Math.min(avail, this.capacity);
-        if (this.gotoBuilding(g, from)) {
-          from.reserveOut(res, amt);
-          this.targetB = from.id;
-          this.fetchRes = res; this.fetchAmt = amt;
-          this.jobDestOverride = -1;
-          this.action = 'toPickup';
-          this.activity = `Collecting ${RESOURCES[res].name.toLowerCase()}`;
-          return;
-        }
-      }
+      if (pickup && this.beginHaul(g, {
+        from: pickup.from, res: pickup.res, want: pickup.avail, to: null, min: 0, verb: 'collect',
+      })) return;
       // Otherwise help raise whatever is under construction.
       if (this.tryConstruction(g)) return;
     }
@@ -834,18 +884,9 @@ export class Villager {
   private startFetch(g: Game, res: ResId, amt: number, dest: Building): boolean {
     const src = g.findSource(res, dest.cx, dest.cy, Math.min(amt, 1));
     if (!src || src.id === dest.id) return false;
-    this.maybeTakeCart(g, amt);
-    const take = Math.min(amt, src.available(res), this.capacity);
-    if (take < 1) return false;
-    if (!this.gotoBuilding(g, src)) return false;
-    src.reserveOut(res, take);
-    dest.addIncoming(res, take);
-    this.targetB = src.id;
-    this.fetchRes = res; this.fetchAmt = take;
-    this.action = 'toPickup';
-    this.activity = `Fetching ${RESOURCES[res].name.toLowerCase()}`;
-    this.jobDestOverride = dest.id;
-    return true;
+    return this.beginHaul(g, {
+      from: src, res, want: amt, to: dest, min: 1, verb: 'fetch', cartHint: amt,
+    });
   }
 
   /** When set, a completed pickup is delivered here rather than to the workplace. */
@@ -871,20 +912,9 @@ export class Villager {
 
     // Spare hands clear finished goods out of workshops.
     const pickup = g.findAnyPickup(this.x, this.y);
-    if (pickup) {
-      const { from, res, avail } = pickup;
-      this.maybeTakeCart(g, avail);
-      const amt = Math.min(avail, this.capacity);
-      if (this.gotoBuilding(g, from)) {
-        from.reserveOut(res, amt);
-        this.targetB = from.id;
-        this.fetchRes = res; this.fetchAmt = amt;
-        this.jobDestOverride = -1;
-        this.action = 'toPickup';
-        this.activity = `Collecting ${RESOURCES[res].name.toLowerCase()}`;
-        return;
-      }
-    }
+    if (pickup && this.beginHaul(g, {
+      from: pickup.from, res: pickup.res, want: pickup.avail, to: null, min: 0, verb: 'collect',
+    })) return;
 
     this.retry = 1.5 + g.rand() * 2;
     this.activity = 'Looking for work';
@@ -912,18 +942,7 @@ export class Villager {
         const need = owed[res] ?? 0;
         const src = g.findSourceAny(res, site.cx, site.cy, 1);
         if (!src) continue;
-        this.maybeTakeCart(g, Math.min(need, src.available(res)));
-        const amt = Math.min(need, this.capacity, src.available(res));
-        if (amt < 0.5) continue;
-        if (!this.gotoBuilding(g, src)) continue;
-        src.reserveOut(res, amt);
-        site.addIncoming(res, amt);
-        this.targetB = src.id;
-        this.fetchRes = res; this.fetchAmt = amt;
-        this.jobDestOverride = site.id;
-        this.action = 'toPickup';
-        this.activity = `Hauling ${RESOURCES[res].name.toLowerCase()} to the site`;
-        return true;
+        if (this.beginHaul(g, { from: src, res, want: need, to: site, min: 0.5, verb: 'site' })) return true;
       }
       return false;
     }
@@ -967,7 +986,7 @@ export class Villager {
 
   /** Release every reservation this villager holds. Called on death or reassignment. */
   releaseAll(g: Game): void {
-    this.cancelReservations(g);
+    this.cancelHaul(g);
     this.releaseCart(g);
     if (this.targetNode >= 0) g.releaseNode(this.targetNode);
     this.targetNode = -1;

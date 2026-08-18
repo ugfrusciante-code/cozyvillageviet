@@ -103,6 +103,62 @@ export function stateHash(g: Game): StateHash {
   };
 }
 
+// ------------------------------------------------------------ ledger audit
+
+/**
+ * Check the two-sided hauling ledger against the villagers who are supposed to
+ * be honouring it.
+ *
+ * `reservedOut` is stock a source has promised away; `incoming` is a delivery a
+ * destination is expecting. Both are claims held by a villager mid-trip, and
+ * both are invisible in the UI — a leak shows up only as goods that quietly
+ * stop being available. Reconstructing the ledger from who is actually walking
+ * where turns that silent failure into a loud one.
+ *
+ * Returns a list of discrepancies; empty means balanced.
+ */
+export function auditReservations(g: Game): string[] {
+  const problems: string[] = [];
+  const key = (id: number, res: string) => `${id}:${res}`;
+  const expectReserved = new Map<string, number>();
+  const expectIncoming = new Map<string, number>();
+  const bump = (m: Map<string, number>, k: string, v: number) => m.set(k, (m.get(k) ?? 0) + v);
+
+  for (const v of g.villagers.values()) {
+    if (v.action === 'toPickup' && v.fetchRes && v.targetB >= 0) {
+      bump(expectReserved, key(v.targetB, v.fetchRes), v.fetchAmt);
+      if (v.jobDestOverride >= 0) bump(expectIncoming, key(v.jobDestOverride, v.fetchRes), v.fetchAmt);
+    }
+    if (v.action === 'toDrop' && v.carry && v.targetB >= 0) {
+      bump(expectIncoming, key(v.targetB, v.carry.res), v.carry.amt);
+    }
+  }
+
+  const EPS = 0.01;
+  for (const b of g.buildings.values()) {
+    for (const [ledger, expected, label] of [
+      [b.reservedOut, expectReserved, 'reservedOut'],
+      [b.incoming, expectIncoming, 'incoming'],
+    ] as const) {
+      const seen = new Set<string>([...Object.keys(ledger)]);
+      for (const k of expected.keys()) if (k.startsWith(`${b.id}:`)) seen.add(k.slice(String(b.id).length + 1));
+      for (const res of seen) {
+        const have = (ledger as Record<string, number | undefined>)[res] ?? 0;
+        const want = expected.get(key(b.id, res)) ?? 0;
+        if (Math.abs(have - want) > EPS) {
+          problems.push(`${b.name} #${b.id} ${label}.${res}: ledger ${have.toFixed(2)}, villagers account for ${want.toFixed(2)}`);
+        }
+      }
+    }
+    for (const [res, amt] of Object.entries(b.reservedOut)) {
+      if ((amt ?? 0) - b.amount(res as never) > EPS) {
+        problems.push(`${b.name} #${b.id} has promised ${(amt ?? 0).toFixed(2)} ${res} but holds ${b.amount(res as never).toFixed(2)}`);
+      }
+    }
+  }
+  return problems;
+}
+
 // --------------------------------------------------------------- assertions
 
 /** Records pass/fail so a harness can exit non-zero without bookkeeping. */
