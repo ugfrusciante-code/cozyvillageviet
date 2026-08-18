@@ -113,6 +113,12 @@ claim is detour collapse, and the harness proves a 60-tile shore trudge becomes 
 stroll. Walkable-water overlay, 0.8 step cost, additive save field, waterline-pinned mesh.
 Goldens re-recorded for payload shape only (d400 health summaries byte-identical).
 
+### Phase 2.2 — Charcoal ✅ (first chain-deepening)
+The smelter's "ore and charcoal in" description now tells the truth: a Charcoal Burner turns
+firewood into the only fuel that smelts iron, making tools four conversions deep — and
+bootstrap-test now computes chain depth over the recipe graph and fails CI if it ever drops
+below four. Flowers/dyes and the honey chains remain open.
+
 ## Deliberately not doing
 
 - **Multi-region** (§1.4, §4.7). The spec is region-centric because Manor Lords is a territorial
