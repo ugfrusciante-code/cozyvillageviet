@@ -78,6 +78,27 @@ Every modifier answers "why is this sawmill producing 15% more?" in the UI.
 Army generation consumes civilian labour: the cross-system contract that makes defence cost
 something. Loot-and-flee first, no combat resolution, per the scope warning we already wrote.
 
+### S9 — Raiders ✅ (first pass: loot-and-flee)
+Threat accrues daily with visible wealth — a raid is a cost of growth, never a dice roll —
+with three years of grace and two days of warning. A band of 2–6 walks in from a reachable
+map edge, fills a sack each at the richest store (only ever from `available()`, so receipts
+stay honest mid-raid), and leaves; every household carries the shock for four days. Nobody
+dies, nothing burns. Launch reachability judges the target by its walkable neighbourhood —
+the exact-entrance-tile version silently cancelled 13 of 14 raids. Cadence after tuning: ~1
+raid per 1.5–2 years on a modest village, absorbed at stable population. Militia, defence
+buildings and combat stay open for the second pass.
+
+### Phase 9 — Milestones ✅
+Thirteen derived-stat firsts in the ledger, dated by year, three nearest goals barred up.
+G-10 at sandbox weight: no rewards, just the chronicle.
+
+### Phase 2.1 — Tool wear ✅
+Every workshop batch consumes 0.01 tools from the stores; an empty toolbox slows benches to
+0.85×. Gathering deliberately wears nothing (cycles outnumber batches 10:1 — the first
+tuning bled villages dry). The wandering tinker sells up to four tools a season at 1.2×,
+never below a 60-coin cushion: the blacksmith is the answer, the tinker is the apology. The
+iron chain is now a daily industry, which is also what raids and future militia want.
+
 ## Deliberately not doing
 
 - **Multi-region** (§1.4, §4.7). The spec is region-centric because Manor Lords is a territorial
