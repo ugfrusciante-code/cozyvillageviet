@@ -95,6 +95,8 @@ export interface BuildingVisual {
   selection: LineSegments;
   lastTier: number;
   lastState: string;
+  /** Last herd count pushed to the flock meshes. */
+  lastHerd?: number;
 }
 
 export function makeBuildingMesh(b: Building): BuildingVisual {
@@ -180,7 +182,9 @@ export function makeBuildingMesh(b: Building): BuildingVisual {
       };
       addRail(w, 0, -d / 2, true); addRail(w, 0, d / 2, true);
       addRail(d, -w / 2, 0, false); addRail(d, w / 2, 0, false);
-      const flock = Math.max(2, Math.min(8, Math.round(b.area / 7)));
+      // Twelve sheep at most; updateBuildingVisual shows as many as the herd
+      // actually holds. An empty paddock renders as exactly that.
+      const flock = 12;
       for (let i = 0; i < flock; i++) {
         const sheep = new Group();
         const body = new Mesh(new CapsuleGeometry(0.16, 0.22, 3, 6), mat(0xf0ece2));
@@ -194,6 +198,8 @@ export function makeBuildingMesh(b: Building): BuildingVisual {
         const gz = ((i * 0.73 + b.variant * 2) % 1 - 0.5) * (d - 1);
         sheep.position.set(gx, 0, gz);
         sheep.rotation.y = i * 2.2;
+        sheep.name = `sheep-${i}`;
+        sheep.visible = false;
         built.add(sheep);
       }
       break;
@@ -578,6 +584,18 @@ export function updateBuildingVisual(v: BuildingVisual, b: Building, g: Game, ni
     v.lastState = b.state;
     v.built.visible = isBuilt;
     v.site.visible = !isBuilt;
+  }
+
+  // The rendered flock samples the real herd — up to twelve on screen, and
+  // an empty paddock shows exactly nothing. Only touched when the count
+  // moves; getObjectByName every frame would be silly.
+  if (b.def.husbandry && isBuilt && v.lastHerd !== b.herd) {
+    v.lastHerd = b.herd;
+    const show = Math.min(12, b.herd);
+    for (let i = 0; i < 12; i++) {
+      const sheep = v.built.getObjectByName(`sheep-${i}`);
+      if (sheep) sheep.visible = i < show;
+    }
   }
   if (!isBuilt) {
     const fill = v.site.getObjectByName('fill') as Mesh | undefined;

@@ -130,6 +130,16 @@ export class Building {
   /** Production stops when the village holds this much of the output (null = no cap). */
   limit: number | null = null;
 
+  // --- Herd state (husbandry buildings; see systems/livestock.ts) ---
+  /** Heads in the paddock. */
+  herd = 0;
+  /** Progress toward the next lamb, 0..1. Fed herds under capacity breed. */
+  breedProgress = 0;
+  /** Consecutive days the herd has gone hungry. Starvation culls at four. */
+  herdHunger = 0;
+  /** Set when the founding pair arrives, so a starved-out paddock stays empty. */
+  herdFounded = false;
+
   // --- Service state ---
   /** Villagers within this service's radius. */
   serving = 0;
@@ -354,7 +364,10 @@ export class Building {
   /** Finished goods sitting here that hauliers should move to storage. */
   outputStock(): Amounts {
     const out: Amounts = {};
-    const recipeInputs = this.def.recipe?.in ?? {};
+    const recipeInputs: Partial<Record<string, unknown>> = { ...(this.def.recipe?.in ?? {}) };
+    // Winter fodder laid into a paddock is provision, not produce — a porter
+    // hauling it back out would starve the herd with perfect bookkeeping.
+    for (const f of this.def.husbandry?.fodder.kinds ?? []) recipeInputs[f] = 1;
     for (const k in this.store) {
       const res = k as ResId;
       if (recipeInputs[res] !== undefined) continue; // still an input
@@ -414,6 +427,9 @@ export const BUILDING_PERSIST = {
   tier: 'save', familyIds: 'save', residents: 'save', contentment: 'save',
   moodEvents: 'save',
   localCharm: 'save', downgradeStrikes: 'save', rationing: 'save',
+
+  // Herd.
+  herd: 'save', breedProgress: 'save', herdHunger: 'save', herdFounded: 'save',
 
   // Field.
   growth: 'save', sown: 'save', sowProgress: 'save',

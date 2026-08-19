@@ -559,7 +559,9 @@ function frame(now: number): void {
           ? `building · ${Math.round(building.buildFraction * 100)}%`
           : building.isHouse
             ? `${building.residents.length} residents · ${Math.round(building.contentment * 100)}% content`
-            : building.jobSlots > 0
+            : building.def.husbandry
+            ? `${building.herd} ${building.def.husbandry.animal} · ${building.workers.length}/${building.jobSlots} shepherds · ${building.status}`
+          : building.jobSlots > 0
               ? `${building.workers.length}/${building.jobSlots} workers · ${building.status}`
               : building.status;
         ui.showTooltip(`<b>${building.def.icon} ${building.isHouse ? building.tierDef().name : building.name}</b><span>${extra}</span>`, pointer.cx, pointer.cy);

@@ -23,6 +23,7 @@ function producersOf(res: ResId): string[] {
     d.harvest?.out === res
     || (d.harvest?.extra && res in d.harvest.extra)
     || (d.recipe?.out && res in d.recipe.out)
+    || (d.husbandry && (d.husbandry.tend.out === res || res in d.husbandry.slaughter))
     || (!!d.crop && CROP_OUTPUTS.has(res)),
   ).map((d) => d.id);
 }

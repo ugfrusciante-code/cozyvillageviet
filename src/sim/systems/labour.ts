@@ -13,6 +13,7 @@ import type { Game } from '../game';
 import { backlog, stockOf, totalOf } from './inventory';
 import { hasBuilding } from './placement';
 import { residentsServedBy } from './services';
+import { fodderDays } from './livestock';
 
 /** Reconcile workers against the job slots the player has opened. */
 export function reassign(g: Game): void {
@@ -200,6 +201,15 @@ export function autoPriority(g: Game, b: Building): number {
     }
     if (d.cat === 'farming') return BAND.SUPPORT;
     return BAND.ROUTINE;
+  }
+  if (d.husbandry) {
+    // An empty paddock needs nobody. A flock heading into the cold with a
+    // bare fodder shelf needs somebody today.
+    if (b.herd <= 0) return BAND.IDLE + 0.2;
+    if ((g.season === 'summer' || g.season === 'autumn') && fodderDays(b) < TUNING.daysPerSeason) {
+      return BAND.PRODUCTION + 0.3;
+    }
+    return BAND.SUPPORT + 0.1;
   }
   if (d.plants) return BAND.ROUTINE + 0.5;
   if (d.watch) {

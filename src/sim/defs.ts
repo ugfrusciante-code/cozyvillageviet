@@ -266,6 +266,23 @@ export interface BuildingDef {
    * not a purchase.
    */
   watch?: { radius: number };
+  /**
+   * A real herd lives here: an aggregate (count, breeding, hunger) rather
+   * than per-animal entities — twenty pastures of thirty sheep would be six
+   * hundred entities in every tick and every save, for nothing a number
+   * cannot give. The renderer samples the count; the sim stays cheap.
+   */
+  husbandry?: {
+    animal: string;
+    /** Paddock tiles that feed one head — capacity scales with the drag. */
+    tilesPerHead: number;
+    /** Continuous yield from tending the herd (shearing, milking). */
+    tend: { out: ResId; perHead: number; work: number };
+    /** What one culled head renders down to. */
+    slaughter: Partial<Record<ResId, number>>;
+    /** What the herd eats per head per day when the grass is under snow. */
+    fodder: { kinds: ResId[]; perHeadDay: number };
+  };
   /** Renderer hints. */
   height: number;
   palette: 'timber' | 'stone' | 'thatch' | 'brick' | 'canvas' | 'garden' | 'field';
@@ -378,10 +395,16 @@ export const BUILDINGS: BuildingDef[] = [
   }),
   B({
     id: 'pasture', name: 'Sheep Pasture', cat: 'farming', icon: '🐑',
-    desc: 'Drag out the paddock — more grass, more sheep, more wool. Shears all year round.',
+    desc: 'Drag out the paddock — more grass feeds more sheep. They breed, get shorn, and manure the soil around them. Lay in grain or turnips before winter.',
     size: [4, 4], cost: { logs: 14, planks: 4 }, buildWork: 45, jobs: 2,
     zone: { minSide: 3, maxSide: 9 },
-    recipe: { in: {}, out: { wool: 5 }, work: 20 },
+    husbandry: {
+      animal: 'sheep',
+      tilesPerHead: 6,
+      tend: { out: 'wool', perHead: 0.35, work: 20 },
+      slaughter: { meat: 6, hide: 1 },
+      fodder: { kinds: ['grain', 'turnips'], perHeadDay: 0.25 },
+    },
     height: 0.9, palette: 'field',
   }),
   B({

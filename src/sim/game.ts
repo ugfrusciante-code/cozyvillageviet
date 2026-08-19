@@ -44,6 +44,7 @@ import { spoilFood } from './systems/spoilage';
 import { checkMilestones } from './systems/milestones';
 import { raidTick, stepRaiders, type Raider } from './systems/raids';
 import { tinkerTick } from './systems/tinker';
+import { herdTick } from './systems/livestock';
 import { seasonTick } from './systems/seasons';
 import { setupStart } from './systems/founding';
 
@@ -266,6 +267,7 @@ export class Game {
 
   private dayTick(): void {
     nodes.regrowNodes(this);
+    herdTick(this);
     farming.cropCycle(this);
     farming.soilDrift(this);
     population.ageAndHealth(this);

@@ -284,6 +284,7 @@ export class Villager {
     if (this.carry) { this.doDeliver(g, dt); return; }
 
     if (def.crop) { this.cropLoop(g, dt, b); return; }
+    if (def.husbandry) { this.herdLoop(g, dt, b); return; }
     if (def.harvest) { this.harvestLoop(g, dt, b); return; }
     if (def.plants) { this.plantLoop(g, dt, b); return; }
     if (def.recipe) { this.craftLoop(g, dt, b); return; }
@@ -551,6 +552,79 @@ export class Villager {
       if (this.goto(g, tx, ty, 0.8)) this.action = 'toWork';
     }
     apply(this.workRate(g) * (0.7 + b.fertility * 0.45));
+  }
+
+  // --- herds ---------------------------------------------------------------
+
+  /**
+   * The shepherd's day: keep the fodder shelf ahead of winter, shear the
+   * flock, and run the wool to the stores when the pile gets silly. Every
+   * yield here scales with the herd, so the paddock earns nothing until the
+   * flock has grown into it — the opposite shape to a workshop.
+   */
+  private herdLoop(g: Game, dt: number, b: Building): void {
+    const h = b.def.husbandry!;
+    if (this.action === 'toPickup' || this.action === 'toDrop') { this.doTrip(g, dt); return; }
+    if (this.carry) { this.doDeliver(g, dt); return; }
+
+    if (b.herd <= 0) {
+      b.status = 'An empty paddock';
+      this.stayAt(g, dt, b, 'Mending the fences');
+      return;
+    }
+
+    // Provision first: from late summer, lay in enough to winter the flock.
+    // Roughly a season and a half of eating, topped up as it drains.
+    if (this.retry <= 0 && (g.season === 'summer' || g.season === 'autumn' || g.season === 'winter')) {
+      let stocked = 0;
+      for (const kind of h.fodder.kinds) stocked += b.amount(kind) + (b.incoming[kind] ?? 0);
+      const target = b.herd * h.fodder.perHeadDay * TUNING.daysPerSeason * 1.5;
+      if (stocked < target) {
+        for (const kind of h.fodder.kinds) {
+          const src = g.findSource(kind, b.cx, b.cy, 1);
+          if (!src) continue;
+          if (this.beginHaul(g, { from: src, res: kind, want: target - stocked, to: b, min: 1, verb: 'fetch' })) return;
+        }
+      }
+    }
+
+    // Wool piling up? Run it in rather than wait for a porter.
+    const stock = b.outputStock();
+    let outTotal = 0;
+    for (const k in stock) outTotal += stock[k as ResId] ?? 0;
+    if (outTotal >= TUNING.carryCapacity * 2) {
+      if (this.pickUpFrom(g, b, stock)) return;
+    }
+
+    // Otherwise: shears in hand, out to the flock.
+    const inField = this.x >= b.x - 0.6 && this.x <= b.x + b.w - 0.4
+      && this.y >= b.y - 0.6 && this.y <= b.y + b.h - 0.4;
+    if (!inField) {
+      if (this.action !== 'toWork') {
+        const tx = Math.round(b.x + 0.5 + g.rand() * (b.w - 1));
+        const ty = Math.round(b.y + 0.5 + g.rand() * (b.h - 1));
+        if (!this.goto(g, tx, ty, Math.max(1, Math.min(b.w, b.h) / 2))) { this.retry = 2; return; }
+        this.action = 'toWork';
+      }
+      this.activity = 'Out to the flock';
+      this.stepPath(g, dt);
+      return;
+    }
+    this.action = 'working';
+    this.activity = `Tending the ${h.animal}`;
+    b.status = 'Working';
+    b.activity = b.activity * 0.9 + 0.1;
+    let rate = this.workRate(g);
+    if (g.toolsShort) rate *= TUNING.toolShortPenalty;
+    b.workAccum += dt * rate;
+    if (b.workAccum >= h.tend.work) {
+      b.workAccum -= h.tend.work;
+      const yielded = h.tend.perHead * b.herd;
+      b.add(h.tend.out, yielded);
+      b.produced += yielded;
+      g.stats.producedToday[h.tend.out] = (g.stats.producedToday[h.tend.out] ?? 0) + yielded;
+      this.gainSkill(dt);
+    }
   }
 
   // --- workshops -----------------------------------------------------------
