@@ -1,0 +1,97 @@
+# Exported by three-d-stage
+newmtl stone_warm_grey
+Kd 0.3325 0.3140 0.2831
+Ks 0.2000 0.2000 0.2000
+Ns 8
+d 1.0000
+
+newmtl soil_path
+Kd 0.2542 0.1946 0.1070
+Ks 0.2000 0.2000 0.2000
+Ns 4
+d 1.0000
+
+newmtl plaster_linen
+Kd 0.8632 0.7913 0.6867
+Ks 0.2000 0.2000 0.2000
+Ns 10
+d 1.0000
+
+newmtl timber_dark
+Kd 0.1022 0.0578 0.0319
+Ks 0.2000 0.2000 0.2000
+Ns 30
+d 1.0000
+
+newmtl timber_frame
+Kd 0.2016 0.1070 0.0529
+Ks 0.2000 0.2000 0.2000
+Ns 24
+d 1.0000
+
+newmtl window_frame
+Kd 0.0666 0.1070 0.1384
+Ks 0.2000 0.2000 0.2000
+Ns 30
+d 1.0000
+
+newmtl window_pane
+Kd 0.5457 0.6724 0.7454
+Ks 0.2000 0.2000 0.2000
+Ns 132
+d 1.0000
+
+newmtl iron_dark
+Kd 0.0685 0.0612 0.0497
+Ks 0.2000 0.2000 0.2000
+Ns 40
+d 1.0000
+
+newmtl roof_terracotta
+Kd 0.4793 0.1070 0.0395
+Ks 0.2000 0.2000 0.2000
+Ns 20
+d 1.0000
+
+newmtl plaster_upper
+Kd 0.7157 0.7605 0.7758
+Ks 0.2000 0.2000 0.2000
+Ns 10
+d 1.0000
+
+newmtl brick_clay
+Kd 0.3813 0.1070 0.0497
+Ks 0.2000 0.2000 0.2000
+Ns 16
+d 1.0000
+
+newmtl pot_terracotta
+Kd 0.3968 0.1170 0.0452
+Ks 0.2000 0.2000 0.2000
+Ns 16
+d 1.0000
+
+newmtl foliage_dark
+Kd 0.0762 0.1329 0.0343
+Ks 0.2000 0.2000 0.2000
+Ns 10
+d 1.0000
+
+newmtl foliage_moss
+Kd 0.1946 0.2961 0.0802
+Ks 0.2000 0.2000 0.2000
+Ns 10
+d 1.0000
+
+newmtl soil_dark
+Kd 0.0612 0.0395 0.0222
+Ks 0.2000 0.2000 0.2000
+Ns 4
+d 1.0000
+
+newmtl fence_wood
+Kd 0.3613 0.3005 0.2122
+Ks 0.2000 0.2000 0.2000
+Ns 16
+d 1.0000
+

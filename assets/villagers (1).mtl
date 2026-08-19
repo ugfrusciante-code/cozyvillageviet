@@ -1,0 +1,121 @@
+# Exported by three-d-stage
+newmtl soil_path
+Kd 0.2542 0.1946 0.1070
+Ks 0.2000 0.2000 0.2000
+Ns 4
+d 1.0000
+
+newmtl leather
+Kd 0.2542 0.1022 0.0343
+Ks 0.2000 0.2000 0.2000
+Ns 44
+d 1.0000
+
+newmtl plaster_upper
+Kd 0.7157 0.7605 0.7758
+Ks 0.2000 0.2000 0.2000
+Ns 10
+d 1.0000
+
+newmtl gold
+Kd 0.7379 0.4233 0.0395
+Ks 0.2000 0.2000 0.2000
+Ns 128
+d 1.0000
+
+newmtl skin
+Kd 0.8714 0.5149 0.2961
+Ks 0.2000 0.2000 0.2000
+Ns 76
+d 1.0000
+
+newmtl skin_flush
+Kd 0.7305 0.2705 0.1683
+Ks 0.2000 0.2000 0.2000
+Ns 80
+d 1.0000
+
+newmtl eye_dark
+Kd 0.0242 0.0194 0.0152
+Ks 0.2000 0.2000 0.2000
+Ns 112
+d 1.0000
+
+newmtl timber_frame
+Kd 0.2016 0.1070 0.0529
+Ks 0.2000 0.2000 0.2000
+Ns 24
+d 1.0000
+
+newmtl foliage_dark
+Kd 0.0762 0.1329 0.0343
+Ks 0.2000 0.2000 0.2000
+Ns 10
+d 1.0000
+
+newmtl foliage_moss
+Kd 0.1946 0.2961 0.0802
+Ks 0.2000 0.2000 0.2000
+Ns 10
+d 1.0000
+
+newmtl cloth_madder
+Kd 0.4233 0.0482 0.0296
+Ks 0.2000 0.2000 0.2000
+Ns 24
+d 1.0000
+
+newmtl thatch_straw
+Kd 0.5647 0.3916 0.1384
+Ks 0.2000 0.2000 0.2000
+Ns 8
+d 1.0000
+
+newmtl cloth_cream
+Kd 0.8632 0.7758 0.5647
+Ks 0.2000 0.2000 0.2000
+Ns 20
+d 1.0000
+
+newmtl fence_wood
+Kd 0.3613 0.3005 0.2122
+Ks 0.2000 0.2000 0.2000
+Ns 16
+d 1.0000
+
+newmtl cloth_weld
+Kd 0.1119 0.2582 0.0452
+Ks 0.2000 0.2000 0.2000
+Ns 24
+d 1.0000
+
+newmtl plaster_linen
+Kd 0.8632 0.7913 0.6867
+Ks 0.2000 0.2000 0.2000
+Ns 10
+d 1.0000
+
+newmtl brick_clay
+Kd 0.3813 0.1070 0.0497
+Ks 0.2000 0.2000 0.2000
+Ns 16
+d 1.0000
+
+newmtl steel
+Kd 0.5210 0.5583 0.5906
+Ks 0.2000 0.2000 0.2000
+Ns 120
+d 1.0000
+
+newmtl timber_dark
+Kd 0.1022 0.0578 0.0319
+Ks 0.2000 0.2000 0.2000
+Ns 30
+d 1.0000
+
+newmtl cloth_woad
+Kd 0.0482 0.1559 0.3325
+Ks 0.2000 0.2000 0.2000
+Ns 24
+d 1.0000
+

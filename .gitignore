@@ -16,3 +16,8 @@ Thumbs.db
 # Local-only config and scratch
 *.local
 .claude/settings.local.json
+
+# Baked art sources. The OBJs are tens of megabytes each and what ships is the
+# baked output in src/render/*-data.ts; the .mtl files stay tracked so the
+# material definitions live in history.
+assets/*.obj

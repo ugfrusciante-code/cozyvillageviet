@@ -4,19 +4,73 @@
 
 import {
   ACESFilmicToneMapping, BackSide, BufferAttribute, BufferGeometry, Color, ConeGeometry,
-  CylinderGeometry, DirectionalLight, DodecahedronGeometry, DoubleSide, Fog, Group, HemisphereLight,
-  IcosahedronGeometry, InstancedMesh, Matrix4, Mesh, MeshLambertMaterial,
+  DirectionalLight, DoubleSide, Fog, Group, HemisphereLight,
+  IcosahedronGeometry, InstancedMesh, Mesh, MeshLambertMaterial, MeshPhongMaterial,
   MeshStandardMaterial, Object3D, PCFSoftShadowMap, PerspectiveCamera, PlaneGeometry, Points,
   PointsMaterial, Raycaster, Scene, ShaderMaterial, SphereGeometry, SRGBColorSpace, Vector2,
   Vector3, WebGLRenderer,
 } from 'three';
 
 import { C, SEASON_LOOK, skyOfDay } from './palette';
+import { buildingVisualHeight } from './entities';
+import {
+  natureColor, natureMaterialClone, natureProp, scaleToWidth,
+  type NatureMaterialName, type NaturePropName,
+} from './nature';
 import { NODE_INDEX, WATER_LEVEL } from '../sim/world';
 import type { Game } from '../sim/game';
 import type { Season } from '../sim/defs';
 
 const UP = new Vector3(0, 1, 0);
+
+/**
+ * A baked prop standing on the map: one InstancedMesh per material it is made
+ * of, all sharing an instance index so a single transform places the whole
+ * thing. `used` is how many instances the last refresh wrote.
+ */
+interface PropSet {
+  meshes: InstancedMesh[];
+  capacity: number;
+  used: number;
+}
+
+/**
+ * Trees come off a size ladder rather than a species split — the set ships
+ * four sizes in two shapes each — and fertile ground grows the bigger ones.
+ * Each rung lists its two shapes, its base height in tiles and how much of
+ * that height the per-tile jitter adds.
+ */
+const TREE_LADDER: { shapes: [NaturePropName, NaturePropName]; base: number; vary: number }[] = [
+  { shapes: ['tree_sapling_a', 'tree_sapling_b'], base: 1.0, vary: 0.5 },
+  { shapes: ['tree_young_a', 'tree_young_b'], base: 1.6, vary: 0.6 },
+  { shapes: ['tree_mature_a', 'tree_mature_b'], base: 2.3, vary: 0.9 },
+  { shapes: ['tree_elder_a', 'tree_elder_b'], base: 2.9, vary: 0.8 },
+];
+
+const BUSHES: NaturePropName[] = ['bush_a', 'bush_b', 'bush_c', 'bush_d'];
+const BOULDERS: NaturePropName[] = ['boulder_a', 'boulder_b', 'boulder_c', 'boulder_d', 'boulder_e', 'boulder_f'];
+const SANDSTONES: NaturePropName[] = ['sandstone_a', 'sandstone_b', 'sandstone_c', 'sandstone_d'];
+const PEBBLES: NaturePropName[] = ['pebble_a', 'pebble_b', 'pebble_c'];
+const ORES: NaturePropName[] = ['ore_iron_a', 'ore_iron_b'];
+const STUMPS: NaturePropName[] = ['stump_a', 'stump_b'];
+
+/**
+ * A stable 0..1 value per tile and salt. The world's own jitter is one sample
+ * per tile, and folding it by different multipliers to get "more" randomness
+ * correlates the results: gate on `(j * 31) % 1 < 0.06` and the survivors all
+ * share a structure that `(j * 127) % 1` can still see. Salting an integer
+ * hash of the tile index instead keeps the draws independent.
+ */
+function hash01(tile: number, salt: number): number {
+  let h = Math.imul(tile | 0, 374761393) + Math.imul(salt | 0, 668265263);
+  h = Math.imul(h ^ (h >>> 13), 1274126177);
+  h ^= h >>> 16;
+  return (h >>> 0) / 4294967296;
+}
+
+/** Picks an entry from a variant list. */
+const pick = <T,>(list: T[], tile: number, salt: number): T =>
+  list[Math.min(list.length - 1, Math.floor(hash01(tile, salt) * list.length))];
 
 export class View {
   readonly renderer: WebGLRenderer;
@@ -33,19 +87,15 @@ export class View {
   private baseColors!: Float32Array;
   private water!: Mesh;
 
-  private pineLow!: InstancedMesh;
-  private pineHigh!: InstancedMesh;
-  private leafA!: InstancedMesh;
-  private leafB!: InstancedMesh;
-  private treeTrunks!: InstancedMesh;
+  /** Baked nature props, keyed by name; see `buildVegetation`. */
+  private sets = new Map<NaturePropName, PropSet>();
+  /** One live material per MTL entry, so the season can recolour them. */
+  private natMats = new Map<NatureMaterialName, MeshPhongMaterial>();
   private tufts!: InstancedMesh;
   private flowers!: InstancedMesh;
-  private bushes!: InstancedMesh;
-  private rocks!: InstancedMesh;
-  private oreRocks!: InstancedMesh;
-  private clayPatches!: InstancedMesh;
   private reeds!: InstancedMesh;
-  private treeTiles: number[] = [];
+  /** Allocated instance counts; `count` is lowered to the live draw each refresh. */
+  private groundCaps = { tuft: 0, flower: 0, reed: 0 };
 
   /** Camera focus point on the ground. */
   target = new Vector3(48, 0, 48);
@@ -263,9 +313,40 @@ export class View {
 
   // ----------------------------------------------------------- vegetation
 
+  /** One live material per MTL entry, shared by every prop that uses it. */
+  private natMat(name: NatureMaterialName): MeshPhongMaterial {
+    let m = this.natMats.get(name);
+    if (!m) { m = natureMaterialClone(name); this.natMats.set(name, m); }
+    return m;
+  }
+
+  /**
+   * Registers a baked prop: one InstancedMesh per material it is made of, all
+   * indexed together so a single matrix places the whole prop.
+   */
+  private propSet(name: NaturePropName, capacity: number, castShadow = true): void {
+    const meshes = natureProp(name).map(({ material, geometry }) => {
+      const m = new InstancedMesh(geometry, this.natMat(material), capacity);
+      m.castShadow = castShadow;
+      m.receiveShadow = true;
+      m.frustumCulled = false;
+      this.propRoot.add(m);
+      return m;
+    });
+    this.sets.set(name, { meshes, capacity, used: 0 });
+  }
+
+  /** Stamps the dummy's transform into every mesh of a prop. */
+  private place(name: NaturePropName, dummy: Object3D): void {
+    const set = this.sets.get(name);
+    if (!set || set.used >= set.capacity) return;
+    dummy.updateMatrix();
+    for (const m of set.meshes) m.setMatrixAt(set.used, dummy.matrix);
+    set.used++;
+  }
+
   private buildVegetation(): void {
     const w = this.game.world;
-    const n = w.size;
 
     const count = (kind: string) => {
       let c = 0;
@@ -273,43 +354,48 @@ export class View {
       return c;
     };
 
+    // Headroom on every cap: the forester plants, the woodcutter fells, and
+    // refreshProps is expected to cope without reallocating.
     const treeCap = Math.max(64, count('tree') + 900);
-
-    // Two species make a forest read as a forest instead of a texture:
-    // pines are two stacked cones, broadleaves a trunk with a lobed canopy.
-    const pineLowG = new ConeGeometry(0.72, 1.25, 7);
-    pineLowG.translate(0, 1.0, 0);
-    const pineHighG = new ConeGeometry(0.5, 1.05, 7);
-    pineHighG.translate(0, 1.85, 0);
-    const pineMat = new MeshLambertMaterial({ color: SEASON_LOOK.spring.foliage, flatShading: true });
-    this.pineLow = new InstancedMesh(pineLowG, pineMat, treeCap);
-    this.pineHigh = new InstancedMesh(pineHighG, pineMat, treeCap);
-
-    const leafAG = new IcosahedronGeometry(0.62, 0);
-    leafAG.scale(1, 0.88, 1);
-    leafAG.translate(0, 1.45, 0);
-    const leafBG = new IcosahedronGeometry(0.42, 0);
-    leafBG.translate(0.3, 1.9, 0.12);
-    const leafMat = new MeshLambertMaterial({ color: 0x74924c, flatShading: true });
-    this.leafA = new InstancedMesh(leafAG, leafMat, treeCap);
-    this.leafB = new InstancedMesh(leafBG, leafMat, treeCap);
-
-    const trunk = new CylinderGeometry(0.09, 0.14, 1.1, 5);
-    trunk.translate(0, 0.55, 0);
-    this.treeTrunks = new InstancedMesh(
-      trunk, new MeshLambertMaterial({ color: C.timberDark, flatShading: true }), treeCap,
-    );
-    for (const m of [this.pineLow, this.pineHigh, this.leafA, this.leafB, this.treeTrunks]) {
-      m.castShadow = true; m.receiveShadow = true; m.frustumCulled = false;
-      this.propRoot.add(m);
+    // Any one rung can take a good share of the forest, so each shape gets
+    // room for far more than its average draw rather than the exact split.
+    for (const rung of TREE_LADDER) {
+      const big = rung.base >= 2.3;
+      for (const shape of rung.shapes) this.propSet(shape, Math.ceil(treeCap * 0.42) + 24, big);
     }
+
+    const bushCap = Math.max(24, Math.ceil((count('berry') + count('herb') + count('flower') + count('game')) * 0.6) + 40);
+    for (const b of BUSHES) this.propSet(b, bushCap, false);
+
+    const rockCap = Math.max(16, Math.ceil(count('stone') * 0.4) + 20);
+    for (const b of BOULDERS) this.propSet(b, rockCap);
+    const oreCap = Math.max(16, Math.ceil(count('iron') * 0.7) + 20);
+    for (const o of ORES) this.propSet(o, oreCap);
+
+    // Clay reads as a patch of dark spoil with fired-looking lumps on it.
+    const clayCap = Math.max(16, count('clay') + 20);
+    this.propSet('soil_pad', clayCap, false);
+    this.propSet('brick', clayCap, false);
+
+    // Wilderness dressing. None of this is a resource node — it is scattered
+    // straight off the terrain so the rest of the material set actually shows
+    // up in the valley instead of only on the sample sheet.
+    for (const p of PEBBLES) this.propSet(p, 420, false);
+    for (const s of SANDSTONES) this.propSet(s, 140);
+    for (const s of STUMPS) this.propSet(s, 90, false);
+    this.propSet('slate', 260);
+    this.propSet('quartz', 96);
+    this.propSet('coal', 90, false);
+    this.propSet('ore_copper', Math.max(16, Math.ceil(count('iron') * 0.5) + 20));
+    this.propSet('scrap_a', 48, false);
+    this.propSet('pot', 48, false);
 
     // Ground cover: grass tufts and wildflowers scattered over fertile open
     // ground. Pure set dressing, but it is most of what "lush" means.
     const tuftG = new ConeGeometry(0.1, 0.34, 4);
     tuftG.translate(0, 0.15, 0);
     this.tufts = new InstancedMesh(
-      tuftG, new MeshLambertMaterial({ color: 0x86a45c, flatShading: true }), 3200,
+      tuftG, new MeshLambertMaterial({ color: natureColor('foliage_moss').clone(), flatShading: true }), 3200,
     );
     this.tufts.receiveShadow = true;
     const flowerG = new IcosahedronGeometry(0.075, 0);
@@ -317,49 +403,39 @@ export class View {
     this.flowers = new InstancedMesh(
       flowerG, new MeshLambertMaterial({ flatShading: true }), 700,
     );
-    for (const m of [this.tufts, this.flowers]) {
-      m.frustumCulled = false;
-      this.propRoot.add(m);
-    }
-
-    const bushGeo = new IcosahedronGeometry(0.42, 0);
-    bushGeo.translate(0, 0.34, 0);
-    this.bushes = new InstancedMesh(
-      bushGeo, new MeshLambertMaterial({ color: 0x6f8f4e, flatShading: true }), Math.max(16, count('berry') + count('herb') + count('flower') + 60),
-    );
-    const rockGeo = new DodecahedronGeometry(0.5, 0);
-    rockGeo.scale(1, 0.68, 1);
-    rockGeo.translate(0, 0.3, 0);
-    this.rocks = new InstancedMesh(
-      rockGeo, new MeshLambertMaterial({ color: C.stone, flatShading: true }), Math.max(16, count('stone') + 20),
-    );
-    this.oreRocks = new InstancedMesh(
-      rockGeo.clone(), new MeshLambertMaterial({ color: 0x7c6f63, flatShading: true }), Math.max(16, count('iron') + 20),
-    );
-    const clayGeo = new CylinderGeometry(0.55, 0.62, 0.16, 6);
-    clayGeo.translate(0, 0.08, 0);
-    this.clayPatches = new InstancedMesh(
-      clayGeo, new MeshLambertMaterial({ color: 0x9c7350, flatShading: true }), Math.max(16, count('clay') + 20),
-    );
     const reedGeo = new ConeGeometry(0.16, 0.9, 4);
     reedGeo.translate(0, 0.45, 0);
     this.reeds = new InstancedMesh(
-      reedGeo, new MeshLambertMaterial({ color: 0x86924f, flatShading: true }), Math.max(16, count('fish') + 20),
+      reedGeo, new MeshLambertMaterial({ color: natureColor('foliage_moss').clone(), flatShading: true }),
+      Math.max(16, count('fish') + 20),
     );
-    for (const m of [this.bushes, this.rocks, this.oreRocks, this.clayPatches, this.reeds]) {
-      m.castShadow = true; m.receiveShadow = true; m.frustumCulled = false;
+    this.reeds.castShadow = true;
+    this.reeds.receiveShadow = true;
+    for (const m of [this.tufts, this.flowers, this.reeds]) {
+      m.frustumCulled = false;
       this.propRoot.add(m);
     }
-    void n;
+    this.groundCaps = { tuft: this.tufts.count, flower: this.flowers.count, reed: this.reeds.count };
+
+    this.applySeasonToNature();
     this.refreshProps();
+  }
+
+  /** How steep the ground is at a tile — used to decide where rock shows. */
+  private slopeAt(i: number): number {
+    const w = this.game.world, s = w.size;
+    const x = i % s, y = (i / s) | 0;
+    const h = w.height[i];
+    const e = w.height[x + 1 < s ? i + 1 : i], n = w.height[y + 1 < s ? i + s : i];
+    return Math.abs(e - h) + Math.abs(n - h);
   }
 
   /** Rebuild every instanced prop from the world grid. */
   refreshProps(): void {
     const w = this.game.world;
     const dummy = new Object3D();
-    const counters = { trunk: 0, pine: 0, leaf: 0, bush: 0, rock: 0, ore: 0, clay: 0, reed: 0, tuft: 0, flower: 0 };
-    this.treeTiles.length = 0;
+    for (const set of this.sets.values()) set.used = 0;
+    let tuft = 0, flower = 0, reed = 0;
     const flowerPalette = [0xd96a7a, 0xe8b44a, 0xc98ad4, 0xe57f5a, 0xf0e6c8];
     const flowerColor = new Color();
 
@@ -370,97 +446,204 @@ export class View {
       const px = x + 0.5 + (j - 0.5) * 0.55;
       const pz = y + 0.5 + ((j * 7.3) % 1 - 0.5) * 0.55;
       const py = w.height[i];
+      const free = !w.water[i] && w.occupied[i] < 0 && !w.road[i];
 
-      // Ground cover lives on open, fertile, unoccupied grass.
-      if (kind === 0 && !w.water[i] && w.occupied[i] < 0 && !w.road[i]) {
+      // Ground cover and mineral dressing live on open, unbuilt ground.
+      if (kind === 0) {
+        if (!free) continue;
         const fert = w.fertility[i];
-        if (fert > 0.34 && counters.tuft < this.tufts.count) {
-          const hash = (j * 41.17) % 1;
-          if (hash < 0.5) {
+        const hash = hash01(i, 11);
+
+        if (fert > 0.34) {
+          if (hash < 0.5 && tuft < this.groundCaps.tuft) {
             dummy.position.set(px, py, pz);
             dummy.rotation.set(0, j * 6.28, 0);
             dummy.scale.setScalar(0.75 + hash * 0.9);
             dummy.updateMatrix();
-            this.tufts.setMatrixAt(counters.tuft++, dummy.matrix);
+            this.tufts.setMatrixAt(tuft++, dummy.matrix);
           }
-          const hash2v = (j * 91.7) % 1;
-          if (hash2v > 0.9 && fert > 0.45 && counters.flower < this.flowers.count) {
+          const hash2v = hash01(i, 12);
+          if (hash2v > 0.9 && fert > 0.45 && flower < this.groundCaps.flower) {
             dummy.position.set(x + 0.5 + (hash2v - 0.95) * 6, py, pz);
+            dummy.rotation.set(0, 0, 0);
             dummy.scale.setScalar(0.8 + hash * 0.6);
             dummy.updateMatrix();
-            this.flowers.setMatrixAt(counters.flower, dummy.matrix);
-            flowerColor.setHex(flowerPalette[Math.floor(j * 977) % flowerPalette.length]);
-            this.flowers.setColorAt(counters.flower, flowerColor);
-            counters.flower++;
+            this.flowers.setMatrixAt(flower, dummy.matrix);
+            flowerColor.setHex(pick(flowerPalette, i, 13));
+            this.flowers.setColorAt(flower, flowerColor);
+            flower++;
           }
         }
+        this.scatterMinerals(i, px, py, pz, j, fert, dummy);
         continue;
       }
-      if (kind === 0) continue;
+
+      if (!free && kind !== NODE_INDEX['fish']) continue;
 
       dummy.position.set(px, py, pz);
       dummy.rotation.set(0, j * Math.PI * 2, 0);
-      const scale = 0.82 + j * 0.5;
+      dummy.scale.setScalar(1);
 
-      if (kind === NODE_INDEX['tree'] && counters.trunk < this.treeTrunks.count) {
-        dummy.scale.set(scale, scale * (0.85 + ((j * 3.1) % 1) * 0.55), scale);
-        dummy.updateMatrix();
-        this.treeTrunks.setMatrixAt(counters.trunk++, dummy.matrix);
-        // Species split: broadleaves prefer the fertile lowland, pines the rest.
-        const broadleaf = ((j * 13.37) % 1) < (w.fertility[i] > 0.45 ? 0.55 : 0.2);
-        if (broadleaf) {
-          this.leafA.setMatrixAt(counters.leaf, dummy.matrix);
-          this.leafB.setMatrixAt(counters.leaf, dummy.matrix);
-          counters.leaf++;
-        } else {
-          this.pineLow.setMatrixAt(counters.pine, dummy.matrix);
-          this.pineHigh.setMatrixAt(counters.pine, dummy.matrix);
-          counters.pine++;
+      if (kind === NODE_INDEX['tree']) {
+        // Fertile ground pushes a tile up the size ladder; the jitter decides
+        // the rest, so a wood grades from saplings on the ridge to elders in
+        // the bottoms instead of being uniformly tall.
+        const t = Math.min(0.999, hash01(i, 21) * 0.72 + w.fertility[i] * 0.45);
+        const rung = TREE_LADDER[t < 0.26 ? 0 : t < 0.56 ? 1 : t < 0.82 ? 2 : 3];
+        const shape = rung.shapes[hash01(i, 22) < 0.5 ? 0 : 1];
+        const h = rung.base + hash01(i, 23) * rung.vary;
+        const spread = 0.88 + hash01(i, 24) * 0.3;
+        dummy.scale.set(h * spread, h, h * spread);
+        this.place(shape, dummy);
+      } else if (
+        kind === NODE_INDEX['berry'] || kind === NODE_INDEX['herb']
+        || kind === NODE_INDEX['flower'] || kind === NODE_INDEX['game']
+      ) {
+        const bush = pick(BUSHES, i, 31);
+        const h = (kind === NODE_INDEX['flower'] ? 0.3 : 0.5) + hash01(i, 32) * 0.28;
+        dummy.scale.setScalar(h);
+        this.place(bush, dummy);
+      } else if (kind === NODE_INDEX['stone']) {
+        const rock = pick(BOULDERS, i, 41);
+        dummy.scale.setScalar(0.5 + hash01(i, 42) * 0.5);
+        this.place(rock, dummy);
+      } else if (kind === NODE_INDEX['iron']) {
+        dummy.scale.setScalar(0.45 + hash01(i, 51) * 0.35);
+        this.place(pick(ORES, i, 52), dummy);
+        // Green copper shows on about a third of the seams.
+        if (hash01(i, 53) < 0.34) {
+          dummy.scale.setScalar(0.3 + hash01(i, 54) * 0.2);
+          this.place('ore_copper', dummy);
         }
-        this.treeTiles.push(i);
-      } else if ((kind === NODE_INDEX['berry'] || kind === NODE_INDEX['herb'] || kind === NODE_INDEX['flower'] || kind === NODE_INDEX['game']) && counters.bush < this.bushes.count) {
-        dummy.scale.setScalar(kind === NODE_INDEX['flower'] ? 0.5 : scale * 0.85);
-        dummy.updateMatrix();
-        this.bushes.setMatrixAt(counters.bush++, dummy.matrix);
-      } else if (kind === NODE_INDEX['stone'] && counters.rock < this.rocks.count) {
-        dummy.scale.setScalar(scale * 1.05);
-        dummy.updateMatrix();
-        this.rocks.setMatrixAt(counters.rock++, dummy.matrix);
-      } else if (kind === NODE_INDEX['iron'] && counters.ore < this.oreRocks.count) {
-        dummy.scale.setScalar(scale * 0.9);
-        dummy.updateMatrix();
-        this.oreRocks.setMatrixAt(counters.ore++, dummy.matrix);
-      } else if (kind === NODE_INDEX['clay'] && counters.clay < this.clayPatches.count) {
-        dummy.scale.setScalar(scale);
-        dummy.updateMatrix();
-        this.clayPatches.setMatrixAt(counters.clay++, dummy.matrix);
-      } else if (kind === NODE_INDEX['fish'] && counters.reed < this.reeds.count) {
+      } else if (kind === NODE_INDEX['clay']) {
+        // A pad of spoil with fired-looking lumps on it. The pad has no
+        // thickness, so it rides a hair above the ground to stay out of the
+        // terrain on a slope.
+        dummy.position.y = py + 0.03;
+        dummy.scale.setScalar(scaleToWidth('soil_pad', 0.8 + hash01(i, 61) * 0.35));
+        this.place('soil_pad', dummy);
+        dummy.position.y = py + 0.05;
+        dummy.scale.setScalar(scaleToWidth('brick', 0.45 + hash01(i, 62) * 0.22));
+        this.place('brick', dummy);
+      } else if (kind === NODE_INDEX['fish'] && reed < this.groundCaps.reed) {
         dummy.position.y = WATER_LEVEL - 0.1;
-        dummy.scale.setScalar(scale * 0.8);
+        dummy.scale.setScalar(0.8 + j * 0.4);
         dummy.updateMatrix();
-        this.reeds.setMatrixAt(counters.reed++, dummy.matrix);
+        this.reeds.setMatrixAt(reed++, dummy.matrix);
       }
     }
 
-    // Hide the unused tail of each instanced buffer.
-    const hide = new Matrix4().makeScale(0, 0, 0);
-    const trim = (mesh: InstancedMesh, used: number) => {
-      for (let i = used; i < mesh.count; i++) mesh.setMatrixAt(i, hide);
-      mesh.instanceMatrix.needsUpdate = true;
-    };
-    trim(this.treeTrunks, counters.trunk);
-    trim(this.pineLow, counters.pine);
-    trim(this.pineHigh, counters.pine);
-    trim(this.leafA, counters.leaf);
-    trim(this.leafB, counters.leaf);
-    trim(this.bushes, counters.bush);
-    trim(this.rocks, counters.rock);
-    trim(this.oreRocks, counters.ore);
-    trim(this.clayPatches, counters.clay);
-    trim(this.reeds, counters.reed);
-    trim(this.tufts, counters.tuft);
-    trim(this.flowers, counters.flower);
+    for (const set of this.sets.values()) {
+      for (const m of set.meshes) { m.count = set.used; m.instanceMatrix.needsUpdate = true; }
+    }
+    this.tufts.count = tuft;
+    this.flowers.count = flower;
+    this.reeds.count = reed;
+    for (const m of [this.tufts, this.flowers, this.reeds]) m.instanceMatrix.needsUpdate = true;
     if (this.flowers.instanceColor) this.flowers.instanceColor.needsUpdate = true;
+  }
+
+  /**
+   * Rock, ore and the odd bit of village litter, scattered off the terrain
+   * rather than off the simulation. Nothing here is harvestable; it exists so
+   * the valley shows the whole material set and so bare ground reads as bare
+   * ground rather than as untextured grass.
+   */
+  private scatterMinerals(
+    i: number, px: number, py: number, pz: number, j: number, fert: number, dummy: Object3D,
+  ): void {
+    const w = this.game.world;
+    const slope = this.slopeAt(i);
+    const high = w.height[i] - WATER_LEVEL;
+    dummy.position.set(px, py, pz);
+    dummy.rotation.set(0, j * Math.PI * 2, 0);
+
+    // Rarest first: each tile gets at most one of these, so anything checked
+    // late only ever lands where nothing earlier claimed the ground.
+
+    // The rare rusted tool or broken pot, where someone worked this before you.
+    if (hash01(i, 71) < 0.004) {
+      const litter: NaturePropName = hash01(i, 72) < 0.5 ? 'scrap_a' : 'pot';
+      dummy.scale.setScalar(scaleToWidth(litter, 0.26 + hash01(i, 73) * 0.12));
+      this.place(litter, dummy);
+      return;
+    }
+    // Quartz only up on the tops.
+    if (high > 4.5 && hash01(i, 74) < 0.02) {
+      dummy.scale.setScalar(0.3 + hash01(i, 75) * 0.25);
+      this.place('quartz', dummy);
+      return;
+    }
+    // A felled stump here and there in the woodland fringes.
+    if (fert > 0.42 && hash01(i, 76) < 0.014) {
+      const s = pick(STUMPS, i, 77);
+      dummy.scale.setScalar(scaleToWidth(s, 0.5 + hash01(i, 78) * 0.18));
+      this.place(s, dummy);
+      return;
+    }
+    // Coal shows through the sour ground below the crags.
+    if (fert < 0.22 && hash01(i, 79) < 0.016) {
+      dummy.scale.setScalar(scaleToWidth('coal', 0.5 + hash01(i, 80) * 0.35));
+      this.place('coal', dummy);
+      return;
+    }
+    // Slate breaks out of steep ground, sandstone off dry shoulders.
+    if (slope > 0.55 && hash01(i, 81) < 0.05) {
+      dummy.scale.setScalar(scaleToWidth('slate', 0.5 + hash01(i, 82) * 0.4));
+      this.place('slate', dummy);
+      return;
+    }
+    if (slope > 0.32 && fert < 0.34 && hash01(i, 83) < 0.035) {
+      const s = pick(SANDSTONES, i, 84);
+      dummy.scale.setScalar(scaleToWidth(s, 0.45 + hash01(i, 85) * 0.35));
+      this.place(s, dummy);
+      return;
+    }
+    // Loose chippings on thin, dry soil — the commonest and the smallest.
+    if (fert < 0.4 && hash01(i, 86) < 0.06) {
+      const p = pick(PEBBLES, i, 87);
+      dummy.scale.setScalar(scaleToWidth(p, 0.2 + hash01(i, 88) * 0.16));
+      this.place(p, dummy);
+    }
+  }
+
+  /**
+   * Pushes the season onto the nature materials. The canopy carries most of
+   * it: `foliage_dark` turns rust and `foliage_moss` turns gold in autumn, and
+   * both take a dusting of snow in winter along with the exposed rock.
+   */
+  private applySeasonToNature(): void {
+    const look = SEASON_LOOK[this.season];
+    const winter = this.season === 'winter';
+    const autumn = this.season === 'autumn';
+    const snow = new Color(0xe8edf2);
+
+    const tint = (
+      name: NatureMaterialName, toward: Color, amount: number, snowAmount: number,
+    ) => {
+      const m = this.natMats.get(name);
+      if (!m) return;
+      m.color.copy(natureColor(name)).lerp(toward, amount);
+      if (winter && snowAmount > 0) m.color.lerp(snow, snowAmount);
+    };
+
+    tint('foliage_dark', autumn ? new Color(0xb4602c) : look.foliage, autumn ? 0.6 : 0.5, 0.3);
+    tint('foliage_moss', autumn ? new Color(0xd39a3f) : look.foliageAlt, autumn ? 0.62 : 0.5, 0.5);
+    tint('timber_frame', new Color(C.timberDark), 0.15, 0.12);
+    for (const rock of ['stone_warm_grey', 'stone_slate', 'stone_sand', 'soil_dark'] as NatureMaterialName[]) {
+      tint(rock, natureColor(rock), 0, 0.34);
+    }
+
+    if (this.tufts) {
+      (this.tufts.material as MeshLambertMaterial).color
+        .copy(natureColor('foliage_moss')).lerp(snow, winter ? 0.75 : autumn ? 0.2 : 0);
+      this.tufts.visible = !winter;
+    }
+    if (this.reeds) {
+      (this.reeds.material as MeshLambertMaterial).color
+        .copy(natureColor('foliage_moss')).lerp(new Color(0xbaa96a), autumn || winter ? 0.5 : 0);
+    }
+    if (this.flowers) this.flowers.visible = this.season === 'spring' || this.season === 'summer';
   }
 
   // -------------------------------------------------------------- weather
@@ -631,7 +814,7 @@ export class View {
         if (!smokes) continue;
         if (b.isHouse && this.game.season !== 'winter' && !this.game.isNight) continue;
         if (!b.isHouse && b.activity < 0.05) continue;
-        chimneys.push({ x: b.cx + 0.5, y: b.groundY + b.def.height + 0.7, z: b.cy + 0.4 });
+        chimneys.push({ x: b.cx + 0.5, y: b.groundY + buildingVisualHeight(b) + 0.7, z: b.cy + 0.4 });
       }
       if (chimneys.length) {
         const c = chimneys[Math.floor(Math.random() * chimneys.length)];
@@ -729,22 +912,7 @@ export class View {
     if (g.season !== this.season) {
       this.season = g.season;
       this.paintTerrain(this.season);
-      const look = SEASON_LOOK[this.season];
-      const winter = this.season === 'winter';
-      const snowC = new Color(0xe8edf2);
-      // Pines hold their green (dusted in winter); broadleaves turn with the
-      // season and stand snow-laden in winter.
-      (this.pineLow.material as MeshLambertMaterial).color
-        .copy(look.foliage).lerp(snowC, winter ? 0.42 : 0);
-      const leafColor = new Color(
-        this.season === 'autumn' ? 0xc07b3a : this.season === 'winter' ? 0xb9c4c9 : 0x74924c,
-      );
-      (this.leafA.material as MeshLambertMaterial).color.copy(leafColor);
-      (this.bushes.material as MeshLambertMaterial).color.copy(look.foliageAlt).multiplyScalar(0.9);
-      (this.tufts.material as MeshLambertMaterial).color
-        .copy(new Color(0x86a45c)).lerp(snowC, winter ? 0.75 : this.season === 'autumn' ? 0.2 : 0);
-      this.tufts.visible = !winter;
-      this.flowers.visible = this.season === 'spring' || this.season === 'summer';
+      this.applySeasonToNature();
     }
 
     this.updateWeather(dt);

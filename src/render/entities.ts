@@ -1,6 +1,8 @@
 /**
- * Procedural meshes for buildings and villagers. Every building is assembled
- * from primitives at runtime, so the game ships with no art assets.
+ * Meshes for buildings and villagers. Every building is assembled from
+ * primitives at runtime; the props that dress them — sawn stone, brick, pots,
+ * scrap iron — come from the baked nature set so the village is built out of
+ * the same materials as the valley around it.
  */
 
 import {
@@ -11,6 +13,10 @@ import {
 } from 'three';
 
 import { C } from './palette';
+import { natureHex, natureMaterial, natureProp } from './nature';
+import {
+  MILL_HUB, MILL_SAILS_SCALE, modelMaterial, modelProp, modelSize, type ModelPropName,
+} from './models';
 import type { Building } from '../sim/building';
 import type { Game } from '../sim/game';
 import { WATER_LEVEL } from '../sim/world';
@@ -21,15 +27,38 @@ const mat = (color: number, opts: { flat?: boolean; transparent?: boolean; opaci
     transparent: opts.transparent ?? false, opacity: opts.opacity ?? 1,
   });
 
+/**
+ * Wall, roof and trim per building palette. Everything a village is actually
+ * built out of — plaster, timber, stone, slate, brick, terracotta — is taken
+ * from the material set, so a stone church and a slate outcrop on the hill
+ * behind it are literally the same grey. Thatch, canvas and crops have no
+ * counterpart in the set and keep the game's own colours.
+ */
 const PALETTES: Record<string, { wall: number; roof: number; trim: number }> = {
-  timber: { wall: C.linen, roof: C.thatch, trim: C.timber },
-  thatch: { wall: C.sand, roof: C.thatch, trim: C.timberDark },
-  stone: { wall: C.stone, roof: C.slate, trim: C.stoneDark },
-  brick: { wall: C.clayRed, roof: C.terracotta, trim: C.timberDark },
-  canvas: { wall: C.cream, roof: C.terracotta, trim: C.timber },
-  garden: { wall: 0x8aa05c, roof: 0x6f8f4e, trim: C.timber },
-  field: { wall: C.wheat, roof: C.wheat, trim: C.soil },
+  timber: { wall: natureHex('plaster_linen'), roof: C.thatch, trim: natureHex('timber_frame') },
+  thatch: { wall: C.sand, roof: C.thatch, trim: natureHex('timber_dark') },
+  stone: { wall: natureHex('stone_warm_grey'), roof: natureHex('stone_slate'), trim: natureHex('stone_sand') },
+  brick: { wall: natureHex('brick_clay'), roof: natureHex('pot_terracotta'), trim: natureHex('timber_dark') },
+  canvas: { wall: C.cream, roof: C.terracotta, trim: natureHex('timber_frame') },
+  garden: { wall: 0x8aa05c, roof: 0x6f8f4e, trim: natureHex('timber_frame') },
+  field: { wall: C.wheat, roof: C.wheat, trim: natureHex('soil_path') },
 };
+
+/**
+ * Drops a baked prop into a building group at a given size, keeping every
+ * material part of it together.
+ */
+function addProp(g: Group, name: Parameters<typeof natureProp>[0], size: number, x: number, z: number, spin = 0): void {
+  for (const { material, geometry } of natureProp(name)) {
+    const mesh = new Mesh(geometry, natureMaterial(material));
+    mesh.scale.setScalar(size);
+    mesh.position.set(x, 0, z);
+    mesh.rotation.y = spin;
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    g.add(mesh);
+  }
+}
 
 function addBox(g: Group, w: number, h: number, d: number, x: number, y: number, z: number, m: Material): Mesh {
   const mesh = new Mesh(new BoxGeometry(w, h, d), m);
@@ -67,6 +96,63 @@ function addGable(g: Group, w: number, d: number, h: number, y: number, m: Mater
 
 const windowMat = new MeshBasicMaterial({ color: 0xffd9a0 });
 const windowDark = new MeshLambertMaterial({ color: 0x4a3a2c });
+
+// ---------------------------------------------------------------------------
+// Authored set pieces
+// ---------------------------------------------------------------------------
+
+/**
+ * Buildings whose look comes off an authored model (baked by
+ * `npm run bake:models`) rather than the primitive kit. Each set piece is the
+ * whole plot — house, yard, fences, planting — so these skip the procedural
+ * dressing entirely. `fit` lets a generously staged model (the woodcutter's
+ * sprawling camp) overhang its plot a little instead of shrinking to a toy.
+ */
+const BAKED_MODELS: Record<string, { model: ModelPropName; fit?: number }> = {
+  cottage: { model: 'cottage' },
+  longhouse: { model: 'longhouse' },
+  woodcutter: { model: 'woodcutter', fit: 1.3 },
+  granary: { model: 'granary' },
+  blacksmith: { model: 'forge' },
+  mill: { model: 'mill' },
+};
+
+/** Uniform scale that fits a set piece onto its building's plot. */
+function modelFit(b: Building, spec: { model: ModelPropName; fit?: number }): number {
+  const size = modelSize(spec.model);
+  return Math.min(b.w / size[0], b.h / size[2]) * (spec.fit ?? 1);
+}
+
+/**
+ * The roof height actually on screen — the authored models keep their own
+ * proportions, so chimney smoke can't trust `def.height` for them.
+ */
+export function buildingVisualHeight(b: Building): number {
+  const spec = BAKED_MODELS[b.def.id];
+  return spec ? modelFit(b, spec) * modelSize(spec.model)[1] : b.def.height;
+}
+
+/**
+ * Drops one baked model into a group. Window panes are collected so night can
+ * light them; their day material is remembered on the mesh, since the shared
+ * pane glass — unlike the primitive kit's — is a material worth coming back to.
+ */
+function addModel(g: Group, name: ModelPropName, scale: number, windows?: Mesh[]): void {
+  for (const { material, geometry } of modelProp(name)) {
+    const mesh = new Mesh(geometry, modelMaterial(material));
+    mesh.scale.setScalar(scale);
+    // A hair above the terrain, so the model's ground pad never z-fights it.
+    mesh.position.y = 0.02;
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    if (windows && material === 'window_pane') {
+      mesh.userData.window = true;
+      mesh.userData.unlit = mesh.material;
+      windows.push(mesh);
+    }
+    g.add(mesh);
+  }
+}
 
 function addWindows(g: Group, count: number, w: number, y: number, z: number): Mesh[] {
   const out: Mesh[] = [];
@@ -118,9 +204,23 @@ export function makeBuildingMesh(b: Building): BuildingVisual {
   let wheel: Object3D | undefined;
   let light: PointLight | undefined;
 
-  switch (def.id) {
+  const baked = BAKED_MODELS[def.id];
+  if (baked) {
+    const s = modelFit(b, baked);
+    addModel(built, baked.model, s, windows);
+    if (baked.model === 'mill') {
+      // The sail cross is its own prop, pivoted on the hub; spinning it about
+      // x turns it in its authored plane on the tower's +x face.
+      const hub = new Group();
+      hub.position.set(MILL_HUB[0] * s, MILL_HUB[1] * s + 0.02, MILL_HUB[2] * s);
+      addModel(hub, 'mill_sails', s * MILL_SAILS_SCALE);
+      hub.userData.spin = 'x';
+      built.add(hub);
+      wheel = hub;
+    }
+  } else switch (def.id) {
     case 'road': {
-      const m = new Mesh(new PlaneGeometry(1, 1), mat(C.soil));
+      const m = new Mesh(new PlaneGeometry(1, 1), mat(natureHex('soil_path')));
       m.rotation.x = -Math.PI / 2;
       m.position.y = 0.045;
       m.receiveShadow = true;
@@ -449,7 +549,7 @@ export function makeBuildingMesh(b: Building): BuildingVisual {
     case 'quarry':
     case 'claypit':
     case 'mine': {
-      const pit = new Mesh(new CylinderGeometry(w * 0.48, w * 0.34, 0.5, 8), mat(def.id === 'claypit' ? 0x9c7350 : C.stoneDark));
+      const pit = new Mesh(new CylinderGeometry(w * 0.48, w * 0.34, 0.5, 8), mat(natureHex(def.id === 'claypit' ? 'soil_dark' : 'stone_slate')));
       pit.position.y = -0.18;
       pit.receiveShadow = true;
       built.add(pit);
@@ -460,11 +560,11 @@ export function makeBuildingMesh(b: Building): BuildingVisual {
         built.add(mouth);
         addRoof(built, 1.4, 0.9, 0.6, 1.6, roofM, true);
       } else {
+        const spoil = def.id === 'claypit'
+          ? (['brick', 'pot', 'brick'] as const)
+          : (['boulder_a', 'sandstone_b', 'boulder_d'] as const);
         for (let i = 0; i < 3; i++) {
-          const rock = new Mesh(new IcosahedronGeometry(0.3 + i * 0.06, 0), mat(def.id === 'claypit' ? 0xa87d58 : C.stone));
-          rock.position.set((i - 1) * 0.8, 0.24, d * 0.3);
-          rock.castShadow = true;
-          built.add(rock);
+          addProp(built, spoil[i], 0.5 + i * 0.08, (i - 1) * 0.8, d * 0.3, i * 2.1);
         }
         const cart = addBox(built, 0.6, 0.3, 0.4, w * 0.3, 0.1, -d * 0.3, trimM);
         void cart;
@@ -504,8 +604,8 @@ export function makeBuildingMesh(b: Building): BuildingVisual {
     }
   }
 
-  // Workshop signature props.
-  if (def.id === 'woodcutter' || def.id === 'sawpit' || def.id === 'woodshed') {
+  // Workshop signature props — authored set pieces come dressed already.
+  if (!baked && (def.id === 'woodcutter' || def.id === 'sawpit' || def.id === 'woodshed')) {
     for (let i = 0; i < 4; i++) {
       const log = new Mesh(new CylinderGeometry(0.11, 0.11, 0.9, 6), mat(C.timberDark));
       log.rotation.z = Math.PI / 2;
@@ -521,6 +621,20 @@ export function makeBuildingMesh(b: Building): BuildingVisual {
       barrel.castShadow = true;
       built.add(barrel);
     }
+  }
+
+  // What a workshop stacks outside its door, straight out of the material set.
+  const YARD: Record<string, { prop: Parameters<typeof natureProp>[0]; size: number }[]> = {
+    pottery: [{ prop: 'pot', size: 0.34 }, { prop: 'pot', size: 0.28 }, { prop: 'brick', size: 0.2 }],
+    kiln: [{ prop: 'brick', size: 0.26 }, { prop: 'coal', size: 0.24 }],
+    charburner: [{ prop: 'coal', size: 0.3 }, { prop: 'coal', size: 0.22 }],
+    smelter: [{ prop: 'ore_iron_a', size: 0.42 }, { prop: 'coal', size: 0.24 }, { prop: 'scrap_a', size: 0.22 }],
+    blacksmith: [{ prop: 'scrap_a', size: 0.26 }, { prop: 'scrap_b', size: 0.2 }, { prop: 'coal', size: 0.2 }],
+    mine: [{ prop: 'ore_iron_b', size: 0.5 }, { prop: 'quartz', size: 0.34 }, { prop: 'ore_copper', size: 0.3 }],
+    quarry: [{ prop: 'slate', size: 0.3 }, { prop: 'sandstone_a', size: 0.34 }],
+  };
+  for (const [i, item] of (baked ? [] : YARD[def.id] ?? []).entries()) {
+    addProp(built, item.prop, item.size, -w * 0.36 + i * 0.42, d * 0.34, i * 1.7);
   }
 
   // --- Construction site: stacked materials plus a scaffold frame.
@@ -620,14 +734,19 @@ export function updateBuildingVisual(v: BuildingVisual, b: Building, g: Game, ni
 
   if (v.lastTier !== b.tier) { v.lastTier = b.tier; applyTier(v, b); }
 
-  // Windows light up after dark.
+  // Windows light up after dark. Baked panes go back to their own glass by
+  // day; the primitive kit's go back to plain dark.
   for (const wnd of v.windows) {
     const lit = nightGlow > 0.05 && (b.isHouse ? b.residents.length > 0 : b.workers.length > 0 || b.def.cat === 'decor');
-    wnd.material = lit ? windowMat : windowDark;
+    wnd.material = lit ? windowMat : ((wnd.userData.unlit as Material | undefined) ?? windowDark);
   }
   if (v.light) v.light.intensity = nightGlow * 2.4;
 
-  if (v.wheel) v.wheel.rotation.z += (0.4 + b.activity * 2.4) * 0.016;
+  if (v.wheel) {
+    const spin = (0.4 + b.activity * 2.4) * 0.016;
+    if (v.wheel.userData.spin === 'x') v.wheel.rotation.x += spin;
+    else v.wheel.rotation.z += spin;
+  }
 
   // The farming year, painted onto the furrows: bare soil, young green rows,
   // ripe gold, stubble as the reapers work through, dormant in winter.
