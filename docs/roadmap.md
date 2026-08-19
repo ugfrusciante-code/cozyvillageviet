@@ -119,6 +119,18 @@ firewood into the only fuel that smelts iron, making tools four conversions deep
 bootstrap-test now computes chain depth over the recipe graph and fails CI if it ever drops
 below four. Flowers/dyes and the honey chains remain open.
 
+### Phase 4 — Livestock ✅ (herds)
+The pasture stops being a wool printer: a flock is an aggregate (count, breeding clock,
+hunger ledger) per the plan's cardinality rule, rendered as up to twelve sampled sheep.
+Area is the dial — capacity is tiles/6. A founding pair grows into the paddock in ~2 years;
+at capacity the surplus becomes a meat-and-hides trickle; winter eats the fodder shelf the
+shepherds lay in from late summer, and the shepherd's job climbs the ladder when it runs
+thin. Manure enriches `fertilityBase` under and beside the paddock — the drift-proof field
+the design review insisted on — so sheep-beside-wheat is a real placement decision. Two
+tunings reverted in testing: autumn fodder was a trap for grainless villages (winter only
+now), and the first breeding clock filled a paddock in six years (now two). Cattle, pigs
+and goats remain open as data additions on the same `husbandry` def.
+
 ## Deliberately not doing
 
 - **Multi-region** (§1.4, §4.7). The spec is region-centric because Manor Lords is a territorial
