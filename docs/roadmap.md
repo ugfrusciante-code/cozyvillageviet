@@ -131,6 +131,14 @@ tunings reverted in testing: autumn fodder was a trap for grainless villages (wi
 now), and the first breeding clock filled a paddock in six years (now two). Cattle, pigs
 and goats remain open as data additions on the same `husbandry` def.
 
+### Shipped infrastructure — the game is live
+Playable at **https://ugfrusciante-code.github.io/cozyvillageviet/** — repo public (history
+swept for secret-shaped files first), Pages enabled, every green push deploys. The parallel
+session's full UI overhaul (engraved chrome, tabbed inspector, orb menus) was adopted,
+finished (milestones section, herd card, aria-labels) and landed after an end-to-end
+playability pass; camera input is now frame-scheduling-independent, so WASD works even in
+occluded windows, and single taps nudge immediately.
+
 ## Deliberately not doing
 
 - **Multi-region** (§1.4, §4.7). The spec is region-centric because Manor Lords is a territorial
