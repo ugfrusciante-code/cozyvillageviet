@@ -92,6 +92,13 @@ export interface Prop {
 export interface PropOptions {
   /** Which materials get the reserved structural slice of the budget. */
   structural?: (material: string) => boolean;
+  /**
+   * Materials kept whole, outside the budget — every piece, welded but not
+   * decimated. For a roof authored as hundreds of individual tiles there is no
+   * good subset: the tiles are the surface, and culling any exposes whatever
+   * the artist hid underneath.
+   */
+  keepAll?: (material: string) => boolean;
   /** Grow surviving pieces to cover the ones dropped (canopies want this). */
   grow?: boolean;
   pivot?: 'base' | 'center';
@@ -391,15 +398,28 @@ export class Baker {
     // Split the budget between materials. A straight share of the source
     // triangles starves the trunk — a canopy is thousands of leaf blobs against
     // a hundred triangles of timber — so the structure gets a reserved slice and
-    // the foliage divides the rest.
+    // the foliage divides the rest. Kept-whole materials sit outside the split.
+    const keepAll = opts.keepAll ?? (() => false);
     const count = (want: boolean) => [...groups].reduce(
-      (s, [m, ps]) => s + (structural(m) === want ? ps.reduce((t, p) => t + p.tris.length, 0) : 0), 0,
+      (s, [m, ps]) => s + (!keepAll(m) && structural(m) === want ? ps.reduce((t, p) => t + p.tris.length, 0) : 0), 0,
     );
     const sTris = count(true), oTris = count(false);
     const sFrac = oTris === 0 ? 1 : sTris === 0 ? 0 : 0.3;
 
     const parts: Part[] = [];
     for (const [material, ps] of groups) {
+      if (keepAll(material)) {
+        const verts: number[] = [];
+        const index: number[] = [];
+        for (const p of ps) {
+          const r = this.toBudget(p.tris, p.tris.length);   // welds only
+          const base = verts.length / 3;
+          for (const v of r.verts) verts.push(v);
+          for (const n of r.index) index.push(base + n);
+        }
+        if (index.length) parts.push({ material, verts, index });
+        continue;
+      }
       const pool = budget * (structural(material) ? sFrac : 1 - sFrac);
       const denom = structural(material) ? sTris : oTris;
       const mine = ps.reduce((s, p) => s + p.tris.length, 0);

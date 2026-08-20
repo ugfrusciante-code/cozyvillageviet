@@ -1,9 +1,10 @@
 # Cozy Village
 
-A 3D village/colony sim in the browser. Three.js + TypeScript + Vite. Buildings and villagers are
-generated from primitives at runtime; the trees, rocks, ore and minerals come from one baked
-nature set (`assets/nature_set.obj`), and its eighteen materials are the palette the whole game
-is drawn in.
+A 3D village/colony sim in the browser. Three.js + TypeScript + Vite. The trees, rocks, ore and
+minerals come from one baked nature set (`assets/nature_set.obj`), and its eighteen materials are
+the palette the whole game is drawn in. Buildings with an authored set piece in `assets/` —
+cottage, longhouse, granary, forge, woodcutter's camp, windmill — are baked the same way; the
+rest, villagers included, are still generated from primitives at runtime.
 
 ```bash
 npm install
@@ -11,7 +12,8 @@ npm run dev      # play at http://localhost:5180
 npm run build    # typecheck + production bundle
 npm run sim      # run the simulation headlessly for 70 days and print a report
 npm run bake:nature          # re-bake src/render/nature-data.ts from assets/nature_set.obj
-npm run bake:nature -- --list  # just print the prop inventory it finds
+npm run bake:models          # re-bake src/render/models-data.ts from the building OBJs
+npm run bake:nature -- --list  # just print the prop inventory it finds (bake:models too)
 ```
 
 The village **saves itself as you play** and resumes where you left off when you

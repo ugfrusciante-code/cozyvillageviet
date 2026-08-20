@@ -1,6 +1,7 @@
 /**
- * All DOM: top bar, resource strip, bottom build bar, minimap, overlays,
- * tooltips, inspector, trade and people panels, and the event log.
+ * All DOM: the HUD strip, village banner and alert pennants, bottom build
+ * stack, minimap, overlays, tooltips, the windowed inspector with its tabs,
+ * the ledger/people/menu/help windows, and the event log.
  */
 
 import {
@@ -15,20 +16,9 @@ import { backlog, storageCapacity, storageUsed } from '../sim/systems/inventory'
 import { foodDaysLeft } from '../sim/systems/labour';
 import { MILESTONES } from '../sim/systems/milestones';
 import type { Villager } from '../sim/villager';
-
-const SEASON_COLOR: Record<string, string> = {
-  spring: '#8fb35c', summer: '#e0a756', autumn: '#c06b3d', winter: '#a8c2d4',
-};
-
-const CAT_ICON: Record<BuildCat, string> = {
-  housing: '🏠', gathering: '🪓', farming: '🌾', crafting: '🔨',
-  civic: '⛪', logistics: '📦', decor: '🌷',
-};
-
-const HEADLINE_RES: ResId[] = [
-  'logs', 'planks', 'stone', 'firewood', 'bread', 'berries', 'meat', 'fish',
-  'grain', 'clothes', 'shoes', 'ale', 'tools', 'iron',
-];
+import { I } from './icons';
+import { pic } from './paint';
+import { TRADE_TUNIC, buildingPortrait, villagerPortrait } from '../render/portraits';
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 
@@ -45,6 +35,44 @@ const on = (id: string, fn: (ev: MouseEvent) => void): void => {
   if (el) el.onclick = fn;
   else console.warn(`[ui] no #${id} in the markup — its action is unwired`);
 };
+
+const esc = (s: string): string =>
+  s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+
+/** Painted category glyphs, from the same set as the resources. */
+const CAT_PIC: Record<BuildCat, string> = {
+  housing: 'housing', gathering: 'gathering', farming: 'farming', crafting: 'crafting',
+  civic: 'civic', logistics: 'logistics', decor: 'decor',
+};
+
+const ALERT_META: Record<string, { icon: string; label: string }> = {
+  food: { icon: 'bread', label: 'Food' },
+  fuel: { icon: 'fire', label: 'Firewood' },
+  spoilage: { icon: 'skull', label: 'Spoilage' },
+  homeless: { icon: 'homeless', label: 'Homeless' },
+  market: { icon: 'market', label: 'No market' },
+  idle: { icon: 'idle', label: 'Idle hands' },
+  storage: { icon: 'logistics', label: 'Storage' },
+  coin: { icon: 'coins', label: 'Treasury' },
+  blocked: { icon: 'barrier', label: 'Building sites' },
+  raid: { icon: 'sword', label: 'Raiders' },
+};
+
+/** The resources pinned to the top-right strip, lord's-eye view. */
+const RES_STRIP: ResId[] = ['logs', 'planks', 'stone', 'firewood', 'tools', 'iron', 'grain', 'bread'];
+
+/** Deterministic village name from the world seed. */
+const NAME_A = ['Grün', 'Stein', 'Birken', 'Linden', 'Mühl', 'Eichen', 'Rosen', 'Hasel',
+  'Tann', 'Falken', 'Hirsch', 'Kirch', 'Wiesen', 'Brunn', 'Ahorn', 'Immen'];
+const NAME_B = ['bach', 'berg', 'feld', 'heim', 'hausen', 'stedt', 'dorf', 'reuth',
+  'brand', 'lohe', 'walde', 'au', 'ried', 'tal'];
+function villageNameFor(seed: number): string {
+  const s = Math.abs(seed | 0);
+  return NAME_A[s % NAME_A.length] + NAME_B[Math.floor(s / 13) % NAME_B.length];
+}
+
+type TradeFilter = 'all' | 'material' | 'food' | 'clothing' | 'good';
+type TabName = 'Residential' | 'General' | 'People' | 'Advanced' | 'Trade';
 
 export interface UICallbacks {
   onSelectBuildDef(defId: string | null): void;
@@ -67,40 +95,159 @@ export class UI {
   selectedDef: string | null = null;
   selectedBuilding: Building | null = null;
   selectedVillager: Villager | null = null;
+
+  private tab: TabName = 'General';
+  private selKey = '';
+  private buildOpen = true;
+  private overlayMode: 'none' | 'fertility' | 'charm' = 'none';
+  private tradeFilter: TradeFilter = 'all';
   private lastLogCount = 0;
-  private tradeOpen = false;
   private peopleOpen = false;
   private ledgerOpen = false;
   /** The ledger re-renders once a second, not per UI tick. */
   private ledgerDrawn = 0;
   private minimapDirty = 0;
+  private tipFrom: 'hover' | 'api' = 'api';
+  private saveToastTimer = 0;
+  readonly villageName: string;
 
   constructor(private game: Game, private cb: UICallbacks) {
-    this.buildSpeeds();
-    this.buildCategories();
+    this.villageName = villageNameFor(game.world.seed);
+    const banner = document.getElementById('banner-name');
+    if (banner) banner.textContent = this.villageName.toUpperCase();
+    this.buildStatics();
     this.wire();
+    this.wireTooltips();
+    this.wireWindowDrag();
+    this.renderFlyout();
   }
 
   // ------------------------------------------------------------------ wiring
 
+  private buildStatics(): void {
+    const portrait = document.getElementById('portrait');
+    if (portrait) {
+      portrait.innerHTML = `<div class="frame">${I.portrait}</div><div class="crest">${I.crest}</div>`;
+      portrait.dataset.tip = `The Reeve of ${this.villageName}`;
+      portrait.dataset.tipb = 'Your village, your ledger, your problems.';
+    }
+
+    // Playback orbs.
+    const speeds = document.getElementById('speeds');
+    if (speeds) {
+      speeds.innerHTML = '';
+      const opts: { label: string; v: number; tip: string }[] = [
+        { label: '❚❚', v: 0, tip: 'Pause' }, { label: '▶', v: 1, tip: 'Normal speed' },
+        { label: '▶▶', v: 2, tip: 'Double speed' }, { label: '▶▶▶', v: 5, tip: 'Fast' },
+        { label: '▶▶▶▶', v: 10, tip: 'Fastest' },
+      ];
+      for (const o of opts) {
+        const b = document.createElement('button');
+        b.className = 'orb';
+        b.textContent = o.label;
+        b.dataset.speed = String(o.v);
+        b.dataset.tip = o.tip;
+        b.onclick = () => { this.game.speed = o.v; this.refreshSpeeds(); };
+        speeds.appendChild(b);
+      }
+    }
+
+    // The main round menu.
+    const menu = document.getElementById('mainmenu');
+    if (menu) {
+      menu.innerHTML = '';
+      const items: { id: string; icon: string; tip: string; body: string }[] = [
+        { id: 'roads', icon: I.road, tip: 'Roads', body: 'Drag <b>roads</b> across the ground. Villagers walk far faster on them.' },
+        { id: 'build', icon: I.hammer, tip: 'Construction', body: 'Open and close the building rows.' },
+        { id: 'people', icon: I.people, tip: 'Villagers', body: 'Every household, and who is doing what.' },
+        { id: 'ledger', icon: I.scroll, tip: 'Village ledger', body: 'History, today’s flows, and where the hands are.' },
+        { id: 'help', icon: I.question, tip: 'How to play', body: '' },
+        { id: 'menu', icon: I.gear, tip: 'Village menu', body: 'Save, load, or start again.' },
+      ];
+      for (const it of items) {
+        const b = document.createElement('button');
+        b.className = 'orb orb-lg';
+        b.innerHTML = `<span class="icn">${it.icon}</span>`;
+        b.dataset.menu = it.id;
+        b.dataset.tip = it.tip;
+        b.setAttribute('aria-label', it.tip);
+        if (it.body) b.dataset.tipb = it.body;
+        menu.appendChild(b);
+      }
+      (menu.querySelector('[data-menu="roads"]') as HTMLElement).onclick = () => {
+        const active = this.selectedDef === 'road';
+        this.cb.onSelectBuildDef(active ? null : 'road');
+        this.setBuildSelection(active ? null : 'road');
+      };
+      (menu.querySelector('[data-menu="build"]') as HTMLElement).onclick = () => {
+        this.buildOpen = !this.buildOpen;
+        this.renderFlyout();
+      };
+      (menu.querySelector('[data-menu="people"]') as HTMLElement).onclick = () => {
+        if (this.peopleOpen) this.closePeople();
+        else this.openPeople();
+      };
+      (menu.querySelector('[data-menu="ledger"]') as HTMLElement).onclick = () => {
+        this.ledgerOpen = !this.ledgerOpen;
+        $('ledger').classList.toggle('hidden', !this.ledgerOpen);
+        if (this.ledgerOpen) { this.ledgerDrawn = 0; this.renderLedger(); }
+      };
+      (menu.querySelector('[data-menu="help"]') as HTMLElement).onclick = () => $('help').classList.toggle('hidden');
+      (menu.querySelector('[data-menu="menu"]') as HTMLElement).onclick = () => {
+        $('menu-status').textContent = this.cb.saveStatus();
+        $('menu').classList.toggle('hidden');
+      };
+    }
+
+    // Category orbs.
+    const host = document.getElementById('buildcats');
+    if (host) {
+      host.innerHTML = '';
+      const cats: BuildCat[] = ['housing', 'gathering', 'farming', 'crafting', 'civic', 'logistics', 'decor'];
+      for (const c of cats) {
+        const b = document.createElement('button');
+        b.className = 'orb orb-md';
+        b.innerHTML = pic(CAT_PIC[c], 19);
+        b.dataset.cat = c;
+        b.dataset.tip = CAT_LABEL[c];
+        b.setAttribute('aria-label', CAT_LABEL[c]);
+        b.onclick = () => {
+          this.cat = this.cat === c ? null : c;
+          this.renderFlyout();
+        };
+        host.appendChild(b);
+      }
+    }
+
+    // Window-head icons.
+    const heads: [string, string][] = [
+      ['insp-help', I.question], ['insp-pause', I.pause], ['insp-focus', I.focus],
+      ['insp-close', I.close], ['ledger-close', I.close], ['people-close', I.close],
+      ['menu-close', I.close], ['help-close', I.close],
+    ];
+    for (const [id, icon] of heads) {
+      const el = document.getElementById(id);
+      if (el) el.innerHTML = icon;
+    }
+  }
+
   private wire(): void {
     on('insp-close', () => this.clearSelection());
-    on('trade-close', () => this.closeTrade());
+    on('insp-help', () => $('help').classList.remove('hidden'));
+    on('insp-pause', () => {
+      const b = this.selectedBuilding;
+      if (b) { b.paused = !b.paused; this.renderInspector(); }
+    });
+    on('insp-focus', () => {
+      const b = this.selectedBuilding, v = this.selectedVillager;
+      if (b) this.cb.onFocus(b.cx, b.cy);
+      else if (v) this.cb.onFocus(v.x, v.y);
+    });
+
     on('people-close', () => this.closePeople());
     on('help-close', () => $('help').classList.add('hidden'));
-    on('btn-help', () => $('help').classList.toggle('hidden'));
-
-    on('btn-ledger', () => {
-      this.ledgerOpen = !this.ledgerOpen;
-      $('ledger').classList.toggle('hidden', !this.ledgerOpen);
-      if (this.ledgerOpen) { this.ledgerDrawn = 0; this.renderLedger(); }
-    });
     on('ledger-close', () => { this.ledgerOpen = false; $('ledger').classList.add('hidden'); });
 
-    on('btn-menu', () => {
-      $('menu-status').textContent = this.cb.saveStatus();
-      $('menu').classList.toggle('hidden');
-    });
     on('menu-close', () => $('menu').classList.add('hidden'));
     on('menu-save', () => { this.cb.onSave(); $('menu-status').textContent = this.cb.saveStatus(); });
     on('menu-load', () => this.cb.onLoad());
@@ -129,80 +276,105 @@ export class UI {
       };
     }
 
-    for (const el of $('overlays').querySelectorAll('button')) {
-      (el as HTMLElement).onclick = () => {
-        for (const o of $('overlays').querySelectorAll('button')) o.classList.remove('on');
-        el.classList.add('on');
-        this.cb.onOverlay(((el as HTMLElement).dataset.ov ?? 'none') as 'none' | 'fertility' | 'charm');
+    const ovDock = document.getElementById('overlaydock');
+    if (ovDock) {
+      for (const el of ovDock.querySelectorAll('button')) {
+        (el as HTMLElement).onclick = () => {
+          for (const o of ovDock.querySelectorAll('button')) o.classList.remove('on');
+          el.classList.add('on');
+          this.overlayMode = ((el as HTMLElement).dataset.ov ?? 'none') as 'none' | 'fertility' | 'charm';
+          this.cb.onOverlay(this.overlayMode);
+        };
+      }
+    }
+
+    const mm = document.getElementById('minimap') as HTMLCanvasElement | null;
+    if (mm) {
+      mm.onclick = (e) => {
+        const r = mm.getBoundingClientRect();
+        const n = this.game.world.size;
+        const x = ((e.clientX - r.left) / r.width) * n;
+        const y = ((e.clientY - r.top) / r.height) * n;
+        this.cb.onFocus(x, y);
       };
     }
-
-    const mm = $('minimap') as HTMLCanvasElement;
-    mm.onclick = (e) => {
-      const r = mm.getBoundingClientRect();
-      const n = this.game.world.size;
-      const x = ((e.clientX - r.left) / r.width) * n;
-      const y = ((e.clientY - r.top) / r.height) * n;
-      this.cb.onFocus(x, y);
-    };
   }
 
-  private buildSpeeds(): void {
-    const host = $('speeds');
-    host.innerHTML = '';
-    const opts: { label: string; v: number }[] = [
-      { label: '❚❚', v: 0 }, { label: '1×', v: 1 }, { label: '2×', v: 2 },
-      { label: '5×', v: 5 }, { label: '10×', v: 10 },
-    ];
-    for (const o of opts) {
-      const b = document.createElement('button');
-      b.textContent = o.label;
-      b.dataset.speed = String(o.v);
-      b.onclick = () => { this.game.speed = o.v; this.refreshSpeeds(); };
-      host.appendChild(b);
-    }
-    this.refreshSpeeds();
+  /** One delegated handler renders every `[data-tip]` hover as a styled tooltip. */
+  private wireTooltips(): void {
+    document.addEventListener('pointerover', (e) => {
+      const t = e.target as HTMLElement | null;
+      if (!t || !t.closest) return;
+      const el = t.closest('[data-tip]') as HTMLElement | null;
+      if (el) {
+        this.tipFrom = 'hover';
+        this.showTipFor(el);
+      } else if (this.tipFrom === 'hover') {
+        this.forceHideTip();
+      }
+    });
+    document.addEventListener('pointerdown', () => {
+      if (this.tipFrom === 'hover') this.forceHideTip();
+    }, true);
+    document.documentElement.addEventListener('pointerleave', () => {
+      if (this.tipFrom === 'hover') this.forceHideTip();
+    });
+  }
+
+  private showTipFor(el: HTMLElement): void {
+    const tip = $('tooltip');
+    const title = el.dataset.tip ?? '';
+    const body = el.dataset.tipb ?? '';
+    const cost = el.dataset.tipc ?? '';
+    tip.innerHTML = `<span class="tt">${title}</span>` +
+      (body ? `<span class="tb">${body}</span>` : '') +
+      (cost ? `<span class="tc">${cost}</span>` : '');
+    tip.classList.remove('hidden');
+    const r = el.getBoundingClientRect();
+    const w = tip.offsetWidth, h = tip.offsetHeight;
+    let x = r.left + r.width / 2 - w / 2;
+    x = Math.max(8, Math.min(window.innerWidth - w - 8, x));
+    const below = r.top + r.height / 2 < window.innerHeight / 2;
+    const y = below ? r.bottom + 9 : r.top - h - 9;
+    tip.style.left = `${x}px`;
+    tip.style.top = `${Math.max(8, y)}px`;
+  }
+
+  /** Drag the inspector window around by its header, the way a window should. */
+  private wireWindowDrag(): void {
+    const head = document.getElementById('insp-head');
+    const win = document.getElementById('inspector');
+    if (!head || !win) return;
+    head.addEventListener('pointerdown', (e) => {
+      if ((e.target as HTMLElement).closest('.win-hbtn')) return;
+      e.preventDefault();
+      const r = win.getBoundingClientRect();
+      const ox = e.clientX - r.left, oy = e.clientY - r.top;
+      const move = (ev: PointerEvent) => {
+        const x = Math.max(4, Math.min(window.innerWidth - r.width - 4, ev.clientX - ox));
+        const y = Math.max(4, Math.min(window.innerHeight - 60, ev.clientY - oy));
+        win.style.left = `${x}px`;
+        win.style.top = `${y}px`;
+        win.style.right = 'auto';
+      };
+      const up = () => {
+        window.removeEventListener('pointermove', move);
+        window.removeEventListener('pointerup', up);
+      };
+      window.addEventListener('pointermove', move);
+      window.addEventListener('pointerup', up);
+    });
   }
 
   private refreshSpeeds(): void {
     for (const b of $('speeds').querySelectorAll('button')) {
       b.classList.toggle('on', Number((b as HTMLElement).dataset.speed) === this.game.speed);
     }
+    const badge = document.getElementById('pausebadge');
+    if (badge) badge.classList.toggle('hidden', this.game.speed !== 0);
   }
 
   // --------------------------------------------------------- bottom build bar
-
-  private buildCategories(): void {
-    const host = $('buildcats');
-    host.innerHTML = '';
-    const cats: BuildCat[] = ['housing', 'gathering', 'farming', 'crafting', 'civic', 'logistics', 'decor'];
-    for (const c of cats) {
-      const b = document.createElement('button');
-      b.innerHTML = `<span class="ico">${CAT_ICON[c]}</span>${CAT_LABEL[c]}`;
-      b.dataset.cat = c;
-      b.onclick = () => {
-        this.cat = this.cat === c ? null : c;
-        this.renderFlyout();
-      };
-      host.appendChild(b);
-    }
-  }
-
-  private renderFlyout(): void {
-    for (const b of $('buildcats').querySelectorAll('button')) {
-      b.classList.toggle('on', (b as HTMLElement).dataset.cat === this.cat);
-    }
-    const flyout = $('buildflyout');
-    if (!this.cat) { flyout.classList.add('hidden'); return; }
-    flyout.classList.remove('hidden');
-
-    const grid = $('flyout-grid');
-    grid.innerHTML = '';
-    for (const d of BUILDINGS.filter((x) => x.cat === this.cat)) {
-      grid.appendChild(this.buildCard(d));
-    }
-    this.updateHint();
-  }
 
   private lockReason(d: BuildingDef): string | null {
     if (d.minPop && this.game.population < d.minPop) return `Needs ${d.minPop} villagers`;
@@ -212,6 +384,31 @@ export class UI {
       }
     }
     return null;
+  }
+
+  private renderFlyout(): void {
+    $('buildcats').classList.toggle('hidden', !this.buildOpen);
+    const menu = $('mainmenu');
+    const buildBtn = menu.querySelector('[data-menu="build"]') as HTMLElement | null;
+    if (buildBtn) buildBtn.classList.toggle('on', this.buildOpen);
+    const roadBtn = menu.querySelector('[data-menu="roads"]') as HTMLElement | null;
+    if (roadBtn) roadBtn.classList.toggle('on', this.selectedDef === 'road');
+    for (const b of $('buildcats').querySelectorAll('button')) {
+      b.classList.toggle('on', (b as HTMLElement).dataset.cat === this.cat);
+    }
+
+    const flyout = $('buildflyout');
+    if (!this.cat || !this.buildOpen) {
+      flyout.classList.add('hidden');
+    } else {
+      flyout.classList.remove('hidden');
+      const grid = $('flyout-grid');
+      grid.innerHTML = '';
+      for (const d of BUILDINGS.filter((x) => x.cat === this.cat && x.id !== 'road')) {
+        grid.appendChild(this.buildCard(d));
+      }
+    }
+    this.updatePlacehint();
   }
 
   private buildCard(d: BuildingDef): HTMLElement {
@@ -224,17 +421,24 @@ export class UI {
     if (this.selectedDef === d.id) el.classList.add('on');
 
     const cost = Object.entries(d.cost)
-      .map(([k, v]) => `${RESOURCES[k as ResId].icon}${Math.round(v as number)}`).join(' ') || 'free';
-    const extra = d.zone ? ' · drag to size' : '';
+      .map(([k, v]) => `${pic(k, 11)}${Math.round(v as number)}`)
+      .join('') || 'free';
 
+    const portrait = buildingPortrait(d.id, 176, 112);
     el.innerHTML = `
-      <div class="ico">${d.icon}</div>
-      <div>
-        <div class="nm">${d.name}</div>
-        <div class="cost">${lock ?? cost + extra}</div>
-      </div>`;
+      <div class="art art-${d.palette}">${portrait ? '' : `<span class="ei">${d.icon}</span>`}</div>
+      <div class="cost">${cost}</div>
+      ${lock ? `<span class="lockmark">${I.lock}</span>` : ''}`;
+    if (portrait) {
+      (el.querySelector('.art') as HTMLElement).style.backgroundImage = `url(${portrait})`;
+    }
 
-    el.title = d.desc;
+    el.dataset.tip = d.name;
+    el.dataset.tipb = esc(d.desc) + (lock ? ` <span class="bad">${esc(lock)}.</span>` : '');
+    const costText = Object.entries(d.cost)
+      .map(([k, v]) => `${pic(k, 12)} ${Math.round(v as number)}`).join(' · ') || 'Free';
+    el.dataset.tipc = costText + (d.zone ? ' · drag to size' : '');
+
     el.onclick = () => {
       if (lock) return;
       this.selectedDef = this.selectedDef === d.id ? null : d.id;
@@ -244,22 +448,31 @@ export class UI {
     return el;
   }
 
-  private updateHint(): void {
-    const h = $('flyout-hint');
-    if (this.selectedDef) {
-      const d = BUILDING_BY_ID[this.selectedDef];
-      const zone = d.zone ? ` <b>Press and drag</b> on the ground to draw the plot (${d.zone.minSide}–${d.zone.maxSide} a side).` : ' Click the ground to place · R rotates · Shift keeps placing.';
-      h.innerHTML = `<b>${d.name}</b> — ${d.desc}${zone}`;
-    } else {
-      h.textContent = 'Pick a building. Esc or right-click cancels.';
-    }
+  private updatePlacehint(): void {
+    const host = document.getElementById('placehint');
+    if (!host) return;
+    if (!this.selectedDef) { host.classList.add('hidden'); return; }
+    host.classList.remove('hidden');
+    const d = BUILDING_BY_ID[this.selectedDef];
+    const item = (icon: string, label: string) =>
+      `<span class="hitem">${icon}<span>${label}</span></span>`;
+    const kbd = (k: string) => `<span class="kbd">${k}</span>`;
+    const sep = '<span class="hsep">◆</span>';
+    const parts: string[] = [];
+    if (d.id === 'road') parts.push(item(`<span class="icn">${I.mouseDrag}</span>`, 'DRAG TO DRAW'));
+    else if (d.zone) parts.push(item(`<span class="icn">${I.mouseDrag}</span>`, 'DRAG OUT THE PLOT'));
+    else parts.push(item(`<span class="icn">${I.mouseL}</span>`, 'PLACE'));
+    if (!d.zone && d.id !== 'road') parts.push(item(kbd('R'), 'ROTATE'));
+    parts.push(item(kbd('SHIFT'), 'KEEP PLACING'));
+    parts.push(item(`<span class="icn">${I.mouseR}</span>`, 'CANCEL'));
+    host.innerHTML = parts.join(sep);
   }
 
   setBuildSelection(defId: string | null): void {
     this.selectedDef = defId;
     if (defId) {
       const d = BUILDING_BY_ID[defId];
-      if (d && d.cat !== this.cat) this.cat = d.cat;
+      if (d && d.cat !== this.cat && d.id !== 'road') this.cat = d.cat;
     }
     this.renderFlyout();
   }
@@ -281,6 +494,7 @@ export class UI {
   clearSelection(): void {
     this.selectedBuilding = null;
     this.selectedVillager = null;
+    this.selKey = '';
     $('inspector').classList.add('hidden');
   }
 
@@ -288,6 +502,7 @@ export class UI {
 
   showTooltip(html: string, x: number, y: number): void {
     const tip = $('tooltip');
+    this.tipFrom = 'api';
     tip.innerHTML = html;
     tip.classList.remove('hidden');
     const pad = 14;
@@ -296,7 +511,19 @@ export class UI {
     tip.style.top = `${Math.min(window.innerHeight - h - 8, y + pad)}px`;
   }
 
-  hideTooltip(): void { $('tooltip').classList.add('hidden'); }
+  /**
+   * The frame loop calls this constantly whenever the pointer is off the
+   * canvas — it must not eat tooltips owned by a hovered UI element.
+   */
+  hideTooltip(): void {
+    if (this.tipFrom === 'hover') return;
+    $('tooltip').classList.add('hidden');
+  }
+
+  private forceHideTip(): void {
+    this.tipFrom = 'api';
+    $('tooltip').classList.add('hidden');
+  }
 
   // ------------------------------------------------------- drag size readout
 
@@ -323,66 +550,118 @@ export class UI {
     this.saveToastTimer = window.setTimeout(() => el.classList.add('hidden'), 1800);
   }
 
-  private saveToastTimer = 0;
-
   // ------------------------------------------------------------------ frame
 
   update(): void {
     const g = this.game;
     this.refreshSpeeds();
 
-    const h = Math.floor(g.hour);
-    const m = Math.floor((g.hour % 1) * 60);
-    $('date-line').textContent = `${g.season[0].toUpperCase()}${g.season.slice(1)} · Year ${g.year}`;
-    $('time-line').textContent =
-      `Day ${g.dayOfSeason + 1} of ${TUNING.daysPerSeason} · ${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
-    $('season-dot').style.background = SEASON_COLOR[g.season];
+    const season = g.season[0].toUpperCase() + g.season.slice(1);
+    const dateline = document.getElementById('dateline');
+    if (dateline) {
+      dateline.innerHTML =
+        `<span class="icn">${I.sun}</span><span>${season} · Day ${g.dayOfSeason + 1}</span>` +
+        `<span class="yr">YEAR ${g.year}</span>`;
+    }
 
-    const content = g.averageContentment;
-    const foodStock = FOOD_TYPES.reduce((s, f) => s + g.stockOf(f), 0);
-    const daysFood = foodStock / Math.max(0.01, g.population * TUNING.foodPerDay);
-    $('stats').innerHTML = `
-      <div class="stat"><b>${g.population}</b><span>People</span></div>
-      <div class="stat"><b>${g.idleAdults}</b><span>Idle</span></div>
-      <div class="stat ${content < 0.4 ? 'warn' : ''}"><b>${Math.round(content * 100)}%</b><span>Content</span></div>
-      <div class="stat ${g.coin < 0 ? 'warn' : ''}"><b>${Math.round(g.coin)}</b><span>Coin</span></div>
-      <div class="stat ${daysFood < 4 ? 'warn' : ''}"><b>${daysFood.toFixed(0)}d</b><span>Food</span></div>`;
-    ($('stats') as HTMLElement).onclick = () => this.openPeople();
-
+    this.renderTopStats();
     this.renderResources();
+    this.renderTreasury();
     this.renderAlerts();
     this.renderLog();
     this.renderMinimap();
+
     if (this.selectedBuilding && !g.buildings.has(this.selectedBuilding.id)) this.clearSelection();
     if (this.selectedVillager && !g.villagers.has(this.selectedVillager.id)) this.clearSelection();
     if (this.selectedBuilding || this.selectedVillager) this.renderInspector();
-    if (this.tradeOpen) this.renderTrade();
     if (this.peopleOpen) this.renderPeople();
     if (this.ledgerOpen && performance.now() - this.ledgerDrawn > 1000) this.renderLedger();
   }
 
+  private renderTopStats(): void {
+    const g = this.game;
+    const host = document.getElementById('tl-stats');
+    if (!host) return;
+    const famCount = [...g.families.values()].filter((f) => f.memberIds.length > 0).length;
+    let houses = 0;
+    for (const b of g.buildings.values()) if (b.isHouse && b.state === 'active') houses++;
+    const content = Math.round(g.averageContentment * 100);
+    const hist = g.stats.contentHistory;
+    const prev = hist.length > 1 ? hist[hist.length - 2] : g.averageContentment;
+    const trend = g.averageContentment - prev;
+    const employedPct = g.adults > 0 ? Math.round((g.employed / g.adults) * 100) : 0;
+    const ale = Math.round(g.stockOf('ale'));
+
+    const stat = (icon: string, val: string, tip: string, body: string, crit = false, extra = '') =>
+      `<div class="tstat ${crit ? 'crit' : ''}" data-tip="${esc(tip)}" data-tipb="${esc(body)}">` +
+      `${pic(icon, 14)}<span>${val}</span>${extra}</div>`;
+    const sep = '<span class="tsep">◆</span>';
+
+    const trendArrow = trend > 0.005 ? '<span class="trend up">▲</span>'
+      : trend < -0.005 ? '<span class="trend down">▼</span>' : '';
+
+    host.innerHTML = [
+      stat('family', String(famCount), 'Families', 'Households living in the village.'),
+      stat('housing', String(houses), 'Homes', 'Houses standing, hovel to burgage house.'),
+      stat('person', String(g.population), 'Population', `${g.adults} adults · ${g.population - g.adults} children. Click for the roster.`),
+      stat('approval', `${content}%`, 'Approval', 'Average contentment. Above 56% families grow; below 24% they pack up.', content < 40, trendArrow),
+      stat('scales', `${employedPct}%`, 'Hands at work', `${g.employed} of ${g.adults} adults have a post.`),
+      stat('idle', String(g.idleAdults), 'Labour pool', 'Adults without a post. They haul goods and fill building sites.'),
+      stat('ox', String(g.oxenTotal), 'Draught oxen', `${g.oxenInUse} of ${g.oxenTotal} pulling carts right now.`),
+      stat('ale', String(ale), 'Ale in store', 'The tavern pours it; the brewery brews it.'),
+    ].join(sep);
+    const pop = host.querySelectorAll('.tstat')[2] as HTMLElement | undefined;
+    if (pop) {
+      pop.onclick = () => this.openPeople();
+      pop.style.cursor = 'pointer';
+    }
+  }
+
   private renderResources(): void {
     const g = this.game;
+    const host = document.getElementById('resbar');
+    if (!host) return;
     const parts: string[] = [];
-    for (const r of HEADLINE_RES) {
+    for (const r of RES_STRIP) {
       const amt = g.stockOf(r);
       const flow = g.netFlow(r);
-      if (amt < 0.5 && Math.abs(flow) < 0.5 && !['logs', 'firewood', 'bread'].includes(r)) continue;
       const low = (r === 'firewood' && amt < g.population) || (RESOURCES[r].food && amt < g.population);
-      const d = flow > 0.5 ? `+${flow.toFixed(0)}` : flow < -0.5 ? flow.toFixed(0) : '';
+      const d = flow > 0.5 ? `Gaining ${flow.toFixed(0)} a day.` : flow < -0.5 ? `Losing ${Math.abs(flow).toFixed(0)} a day.` : 'Holding steady.';
       parts.push(
-        `<div class="res ${low ? 'low' : ''}" title="${RESOURCES[r].name}">` +
-        `${RESOURCES[r].icon}<span class="n">${Math.round(amt)}</span>` +
-        `${d ? `<span class="d ${flow < 0 ? 'neg' : ''}">${d}</span>` : ''}</div>`,
+        `<div class="tstat ${low ? 'crit' : ''}" data-tip="${esc(RESOURCES[r].name)}" data-tipb="${d}">` +
+        `${pic(r, 14)}<span>${Math.round(amt)}</span></div>`,
       );
     }
-    $('resbar').innerHTML = parts.join('');
+    host.innerHTML = parts.join('<span class="tsep">◆</span>');
+  }
+
+  private renderTreasury(): void {
+    const g = this.game;
+    const host = document.getElementById('treasury');
+    if (!host) return;
+    const income = g.stats.lastTax + g.stats.lastTradeIncome - g.stats.lastUpkeep;
+    const days = foodDaysLeft(g);
+    const deltaCls = income > 0 ? 'pos' : income < 0 ? 'neg' : '';
+    host.innerHTML =
+      `<div class="trow ${g.coin < 0 ? 'crit' : ''}" data-tip="Treasury" data-tipb="Last season: tax ${Math.round(g.stats.lastTax)} · trade ${Math.round(g.stats.lastTradeIncome)} · upkeep −${Math.round(g.stats.lastUpkeep)}.">` +
+      `${pic('coins', 15)}<span>${Math.round(g.coin)}</span>` +
+      `<span class="delta ${deltaCls}">${income >= 0 ? '+' : ''}${Math.round(income)}</span></div>` +
+      `<div class="trow ${days < 4 ? 'crit' : ''}" data-tip="Days of food" data-tipb="How long the stores last at today’s appetite.">` +
+      `${pic('bread', 13)}<span>${days.toFixed(0)}d</span></div>`;
   }
 
   private renderAlerts(): void {
-    $('alerts').innerHTML = this.game.alerts
-      .map((a) => `<div class="alert ${a.severity === 'danger' ? 'danger' : ''}">${a.text}</div>`)
-      .join('');
+    const host = document.getElementById('alerts');
+    if (!host) return;
+    host.innerHTML = this.game.alerts.map((a) => {
+      const meta = ALERT_META[a.id] ?? { icon: '⚠️', label: 'Warning' };
+      const num = a.text.match(/\d+(\.\d+)?/);
+      const n = num ? Math.round(parseFloat(num[0])) : null;
+      return `<div class="abadge ${a.severity === 'danger' ? '' : 'warn'}" ` +
+        `data-tip="${esc(meta.label)}" data-tipb="${esc(a.text)}.">` +
+        pic(meta.icon, 14) +
+        (n != null && n < 100 ? `<span class="n">${n}</span>` : '') + '</div>';
+    }).join('');
   }
 
   private renderLog(): void {
@@ -412,33 +691,32 @@ export class UI {
         for (let x = 0; x < n; x++) {
           const i = w.idx(x, y);
           let col: string;
-          if (w.water[i]) col = '#5a8fa0';
-          else if (w.road[i]) col = '#8a6c4c';
-          else if (w.node[i] === NODE_INDEX['tree']) col = '#3f5b41';
+          if (w.water[i]) col = '#2e4b5e';
+          else if (w.road[i]) col = '#63492e';
+          else if (w.node[i] === NODE_INDEX['tree']) col = '#2b3f2c';
           else {
             const f = w.fertility[i];
-            col = f > 0.5 ? '#7d9a56' : f > 0.3 ? '#8fa05f' : '#a09a78';
+            col = f > 0.5 ? '#57703f' : f > 0.3 ? '#657149' : '#6f6a52';
           }
           ctx.fillStyle = col;
           ctx.fillRect(x * s, y * s, s + 0.5, s + 0.5);
         }
       }
       for (const b of g.buildings.values()) {
-        ctx.fillStyle = b.state !== 'active' ? '#e0a756'
-          : b.isHouse ? '#c0663d'
-          : b.def.cat === 'farming' ? '#d9bb84'
-          : '#efe1c9';
+        ctx.fillStyle = b.state !== 'active' ? '#c39a45'
+          : b.isHouse ? '#a45c38'
+          : b.def.cat === 'farming' ? '#a58e55'
+          : '#c5b799';
         ctx.fillRect(b.x * s, b.y * s, Math.max(2, b.w * s), Math.max(2, b.h * s));
       }
     }
 
-    // Camera marker: a wedge showing position + facing. Drawn over a cached
-    // copy would be nicer, but a tiny triangle redraw each tick is cheap.
+    // Camera marker: a wedge showing position + facing.
     const cam = this.cb.getCamera();
     ctx.save();
     ctx.translate(cam.x * s, cam.z * s);
     ctx.rotate(-cam.yaw);
-    ctx.strokeStyle = 'rgba(255, 246, 234, 0.95)';
+    ctx.strokeStyle = 'rgba(243, 234, 213, 0.95)';
     ctx.lineWidth = 1.6;
     ctx.beginPath();
     ctx.moveTo(-6, 6);
@@ -449,14 +727,594 @@ export class UI {
     this.minimapDirty = Math.min(this.minimapDirty, 10);
   }
 
-  // -------------------------------------------------------------- inspector
+  // ============================================================== inspector
+
+  private tabsFor(b: Building | null, v: Villager | null): TabName[] {
+    if (v || !b) return ['General'];
+    if (b.state !== 'active') return ['General'];
+    if (b.isHouse) return ['Residential', 'General', 'People'];
+    if (b.def.id === 'tradepost') return ['General', 'People', 'Advanced', 'Trade'];
+    if (b.jobSlots > 0 || b.def.jobs > 0) return ['General', 'People', 'Advanced'];
+    return ['General'];
+  }
+
+  private defaultTab(b: Building | null): TabName {
+    if (b && b.state === 'active') {
+      if (b.isHouse) return 'Residential';
+      if (b.def.id === 'tradepost') return 'Trade';
+    }
+    return 'General';
+  }
 
   private renderInspector(): void {
     const panel = $('inspector');
-    if (this.selectedBuilding) { this.renderBuildingInspector(this.selectedBuilding); panel.classList.remove('hidden'); return; }
-    if (this.selectedVillager) { this.renderVillagerInspector(this.selectedVillager); panel.classList.remove('hidden'); return; }
-    panel.classList.add('hidden');
+    const b = this.selectedBuilding, v = this.selectedVillager;
+    if (!b && !v) { panel.classList.add('hidden'); return; }
+    panel.classList.remove('hidden');
+
+    const key = b ? `b${b.id}:${b.state}` : `v${v!.id}`;
+    if (key !== this.selKey) {
+      this.selKey = key;
+      this.tab = this.defaultTab(b);
+      this.renderChrome();
+    }
+
+    $('insp-pause').classList.toggle('hidden', !b);
+    if (b) $('insp-pause').classList.toggle('on', b.paused);
+
+    const body = $('insp-body');
+    if (body.querySelector('select:focus, input:focus')) return;
+    const scroll = body.scrollTop;
+    this.renderBody();
+    body.scrollTop = scroll;
   }
+
+  private renderChrome(): void {
+    const b = this.selectedBuilding, v = this.selectedVillager;
+    const title = b ? (b.isHouse ? b.tierDef().name : b.name) : v ? v.name : '—';
+    $('insp-title').textContent = title;
+    $('insp-sub').textContent = this.villageName;
+
+    const hero = $('insp-hero');
+    const canHire = !!b && b.state === 'active' && !b.isHouse && (b.jobSlots > 0 || b.def.jobs > 0);
+    let discHtml = pic('person', 27);
+    hero.style.backgroundImage = '';
+    if (b) {
+      const portrait = buildingPortrait(b.def.id, 420, 200);
+      if (portrait) {
+        hero.style.backgroundImage =
+          `linear-gradient(180deg, rgba(16,14,11,0.10) 30%, rgba(16,14,11,0.66) 100%), url(${portrait})`;
+      }
+      discHtml = pic(CAT_PIC[b.def.cat], 27);
+    } else if (v) {
+      const face = this.faceFor(v);
+      if (face) discHtml = `<img class="facebig" src="${face}" alt="">`;
+    }
+    hero.innerHTML =
+      `<div class="disc">${discHtml}</div>` +
+      (canHire ? `<button class="disc-plus" data-tip="Open another post" data-tipb="Raises this workplace’s worker cap by one.">${I.plus}</button>` : '');
+    if (canHire) {
+      (hero.querySelector('.disc-plus') as HTMLElement).onclick = () => {
+        const bb = this.selectedBuilding;
+        if (bb) this.game.setJobSlots(bb.id, bb.jobSlots + 1);
+        this.renderInspector();
+      };
+    }
+
+    const tabs = this.tabsFor(b, v);
+    const host = $('insp-tabs');
+    host.innerHTML = tabs.map((t) =>
+      `<button data-tab="${t}" class="${t === this.tab ? 'on' : ''}">${t}</button>`).join('');
+    for (const el of host.querySelectorAll('button')) {
+      (el as HTMLElement).onclick = () => {
+        this.tab = (el as HTMLElement).dataset.tab as TabName;
+        for (const o of host.querySelectorAll('button')) o.classList.toggle('on', o === el);
+        this.renderBody();
+      };
+    }
+  }
+
+  private renderBody(): void {
+    const b = this.selectedBuilding, v = this.selectedVillager;
+    const body = $('insp-body');
+    let out: string[] = [];
+    if (v) out = this.partsVillager(v);
+    else if (b && b.state !== 'active') out = this.partsConstruction(b);
+    else if (b) {
+      switch (this.tab) {
+        case 'Residential': out = this.partsResidential(b); break;
+        case 'People': out = b.isHouse ? this.partsPeopleHouse(b) : this.partsPeopleWork(b); break;
+        case 'Advanced': out = this.partsAdvanced(b); break;
+        case 'Trade': out = this.partsTrade(); break;
+        default: out = b.isHouse ? this.partsGeneralHouse(b) : this.partsGeneralWork(b);
+      }
+    }
+    body.innerHTML = out.join('');
+    if (b) this.wireBody(b);
+    if (v) this.wireVillagerBody(v);
+  }
+
+  // ------------------------------------------------------------ html helpers
+
+  /** A villager's little rendered portrait, dressed for their trade. */
+  private faceFor(v: Villager): string | null {
+    const job = v.jobId >= 0 ? this.game.buildings.get(v.jobId) : undefined;
+    const key = job ? job.def.cat : v.isAdult ? 'labourer' : 'child';
+    const tunic = TRADE_TUNIC[key] ?? TRADE_TUNIC.labourer;
+    return villagerPortrait(tunic, { hat: v.isAdult });
+  }
+
+  private faceImg(v: Villager, s = 18): string {
+    const url = this.faceFor(v);
+    return url
+      ? `<img class="face" style="width:${s}px;height:${s}px" src="${url}" alt="">`
+      : pic('person', s);
+  }
+
+  private row(label: string, value: string, opts: { icon?: string; cls?: string; vcls?: string } = {}): string {
+    return `<div class="mrow ${opts.cls ?? ''}"><span class="lbl">` +
+      (opts.icon ? pic(opts.icon, 15) : '') +
+      `<span>${label}</span></span><span class="val ${opts.vcls ?? ''}">${value}</span></div>`;
+  }
+
+  private pips(count: number, total: number, bad = false): string {
+    let s = '<span class="pips">';
+    for (let i = 0; i < total; i++) {
+      s += `<span class="pip ${i < count ? 'on' : bad ? 'bad' : ''}"></span>`;
+    }
+    return s + '</span>';
+  }
+
+  private sec(label: string, opts: { icon?: string; caps?: boolean; tip?: string } = {}): string {
+    return `<div class="sec ${opts.caps ? 'caps' : ''}">` +
+      (opts.icon ? pic(opts.icon, 14) : '') +
+      `<span>${label}</span>` +
+      (opts.tip ? `<span class="qm" data-tip="${esc(label)}" data-tipb="${esc(opts.tip)}">${I.question}</span>` : '') +
+      '</div>';
+  }
+
+  private bar(pct: number, cls = ''): string {
+    return `<div class="bar ${cls}"><i style="width:${Math.max(0, Math.min(100, pct))}%"></i></div>`;
+  }
+
+  // -------------------------------------------------------------- tab bodies
+
+  private partsConstruction(b: Building): string[] {
+    const out: string[] = [];
+    const d = b.def;
+    out.push(`<p>${d.desc}</p>`);
+    out.push(this.sec('Under construction', { caps: true }));
+    if (d.zone) out.push(this.row('Plot', `${b.w}×${b.h} · ${b.area} tiles`));
+    const owed = b.materialsOwed('delivered');
+    const owedEntries = Object.entries(owed);
+    if (owedEntries.length) {
+      out.push(this.sec('Waiting on materials', {
+        tip: 'Hauliers bring what the site needs from the stores. If the village owns none of it, build the workshop that makes it.',
+      }));
+      for (const [k, amt] of owedEntries) {
+        const r = RESOURCES[k as ResId];
+        out.push(this.row(r.name, `${Math.ceil(amt as number)} short`, { icon: k, vcls: 'neg' }));
+      }
+    } else {
+      const pct = Math.round(b.buildFraction * 100);
+      out.push(this.row('Frame raised', `${pct}%`));
+      out.push(this.bar(pct));
+    }
+    out.push(`<div class="btn-row">
+      <button class="btn" data-act="pause">${b.paused ? 'Resume' : 'Hold'}</button>
+      <button class="btn danger" data-act="cancel">Cancel</button></div>`);
+    return out;
+  }
+
+  private partsResidential(b: Building): string[] {
+    const out: string[] = [];
+    const s = b.supply;
+    const next = HOUSE_TIERS[b.tier];
+
+    out.push(this.sec('REQUIREMENTS', {
+      caps: true, icon: 'coins',
+      tip: 'What this home draws from wells, taverns, churches and the market stalls. Filled diamonds are needs being met.',
+    }));
+
+    out.push(this.sec('Amenities', { icon: 'ale', tip: 'Services with this home inside their reach.' }));
+    const faith = (b.services as Record<string, number | undefined>).faith ?? 0;
+    out.push(this.row('Water access', this.pips(b.services.water ? 1 : 0, 1), { icon: 'water' }));
+    out.push(this.row('Tavern supply', this.pips(b.services.leisure ? 1 : 0, 1), { icon: 'ale' }));
+    out.push(this.row('Church level', this.pips(faith >= 2 ? 2 : faith >= 1 ? 1 : 0, 2), { icon: 'civic' }));
+    out.push(this.row('Healer', this.pips(b.services.health ? 1 : 0, 1), { icon: 'healer' }));
+    out.push(this.row('Schooling', this.pips(b.services.learning ? 1 : 0, 1), { icon: 'book' }));
+
+    out.push(this.sec('Market supply', { icon: 'market', tip: 'What actually reached this household from the stalls lately.' }));
+    out.push(this.row('Fuel stall supply', this.pips(s.fuelDays > 0.4 ? 1 : 0, 1), { icon: 'fire' }));
+    out.push(this.row('Food stall supply', this.pips(Math.min(3, s.foodTypes.size), 3), { icon: 'bread' }));
+    out.push(this.row('Clothing stall supply', this.pips(Math.min(2, s.clothingTypes.size), 2), { icon: 'clothes' }));
+    out.push(this.row('Comfort goods', this.pips(Math.min(2, s.luxuryTypes.size), 2), { icon: 'pottery' }));
+
+    out.push(this.sec('Surroundings', { icon: 'charm', tip: 'Local charm from wells, chapels, gardens and decor. Tier 3 homes demand 14.' }));
+    out.push(this.row('Charm', this.pips((b.localCharm >= 4 ? 1 : 0) + (b.localCharm >= 14 ? 1 : 0), 2), { icon: 'charm' }));
+
+    if (next) {
+      out.push(this.sec(`To become a ${next.name}`, { caps: true }));
+      if (b.upgradeBlockers.length === 0) {
+        out.push('<p>Everything is in place. It will upgrade shortly.</p>');
+      } else {
+        for (const blocker of b.upgradeBlockers) {
+          out.push(`<div class="mrow req"><span class="lbl"><span>${esc(blocker)}</span></span><span class="val">${this.pips(0, 1, true)}</span></div>`);
+        }
+      }
+    } else {
+      out.push(this.sec('Fully grown', { caps: true }));
+      out.push('<p>This is as fine as a house gets.</p>');
+    }
+    out.push('<div class="btn-row"><button class="btn danger" data-act="demolish">Demolish</button></div>');
+    return out;
+  }
+
+  private partsGeneralHouse(b: Building): string[] {
+    const g = this.game;
+    const out: string[] = [];
+    const tierDef = b.tierDef();
+    out.push(this.sec('Household', { caps: true }));
+    out.push(this.row('Families', `${b.families} / ${b.capacityFamilies}`, { icon: 'family' }));
+    out.push(this.row('Residents', `${b.residents.length} / ${b.capacityResidents}`, { icon: 'person' }));
+    const fams = b.familyIds.map((id) => g.families.get(id)).filter(Boolean);
+    const born = fams.reduce((n, f) => n + (f?.childrenBorn ?? 0), 0);
+    if (born > 0) out.push(this.row('Children raised here', String(born), { icon: 'family' }));
+    out.push(this.row('Tax each season', `${Math.round(tierDef.tax * b.families)}c`, { icon: 'coins' }));
+    const cPct = Math.round(b.contentment * 100);
+    out.push(this.row('Contentment', `${cPct}%`));
+    out.push(this.bar(cPct, cPct < 40 ? 'hot' : cPct < 65 ? '' : 'cool'));
+    if (b.rationing) out.push('<p>Rationing from the storehouse — the stalls were bare.</p>');
+
+    if (b.moodParts.length) {
+      out.push(this.sec('What the household feels', {
+        tip: 'Every mood source. A bar shows a need against its ceiling; a signed number is an event — a birth lifts, mourning weighs.',
+      }));
+      const ranked = [...b.moodParts].sort((a, z) => (a[2] - a[1]) - (z[2] - z[1])).reverse();
+      for (const [label, earned, ceiling] of ranked) {
+        if (ceiling === 0) {
+          const up = earned > 0;
+          out.push(this.row(label, `${up ? '+' : '−'}${Math.abs(earned * 100).toFixed(0)}`, { vcls: up ? 'pos' : 'neg' }));
+          continue;
+        }
+        const pct = Math.round((earned / ceiling) * 100);
+        out.push(this.row(label, `${(earned * 100).toFixed(0)} of ${(ceiling * 100).toFixed(0)}`));
+        out.push(this.bar(pct, pct < 35 ? 'hot' : ''));
+      }
+    }
+
+    out.push(this.sec('Supplied', { caps: true }));
+    out.push('<div class="tags">');
+    const s = b.supply;
+    for (const f of FOOD_TYPES) if (s.foodTypes.has(f)) out.push(`<span class="tag ok">${pic(f, 12)}${RESOURCES[f].name}</span>`);
+    for (const c of CLOTHING_TYPES) if (s.clothingTypes.has(c)) out.push(`<span class="tag ok">${pic(c, 12)}${RESOURCES[c].name}</span>`);
+    for (const l of LUXURY_TYPES) if (s.luxuryTypes.has(l)) out.push(`<span class="tag ok">${pic(l, 12)}${RESOURCES[l].name}</span>`);
+    out.push(s.fuelDays > 0.4 ? `<span class="tag ok">${pic('fire', 12)}Warm</span>` : `<span class="tag no">${pic('fire', 12)}Cold</span>`);
+    out.push('</div>');
+
+    out.push(this.supplyLinesHtml(b));
+    return out;
+  }
+
+  private partsPeopleHouse(b: Building): string[] {
+    const g = this.game;
+    const out: string[] = [];
+    const fams = b.familyIds.map((id) => g.families.get(id)).filter(Boolean);
+    for (const f of fams) {
+      out.push(this.sec(`The ${f!.surname}s`, { caps: true }));
+      const members = f!.memberIds
+        .map((id) => g.villagers.get(id))
+        .filter((x): x is Villager => !!x)
+        .sort((a, z) => z.age - a.age);
+      for (const m of members) {
+        out.push(`<div class="mrow" data-selv="${m.id}" style="cursor:pointer">` +
+          `<span class="lbl">${this.faceImg(m)}<span>${esc(m.name)}</span></span>` +
+          `<span class="val dim">${Math.floor(m.age)} · ${esc(m.jobTitle)}</span></div>`);
+      }
+    }
+    if (!fams.length) out.push('<p>Nobody lives here yet.</p>');
+    return out;
+  }
+
+  private partsPeopleWork(b: Building): string[] {
+    const g = this.game;
+    const out: string[] = [];
+    out.push(this.sec('Workers', { caps: true, tip: 'Villagers posted here. Open more posts and the idle will take them.' }));
+    out.push(`<div class="mrow"><span class="lbl"><span>Posts filled</span></span>
+      <span class="val"><span class="stepper">
+        <button class="orb" data-act="minus"><span class="icn">${I.minus}</span></button>
+        <span class="v">${b.workers.length} / ${b.jobSlots}</span>
+        <button class="orb" data-act="plus"><span class="icn">${I.plus}</span></button>
+      </span></span></div>`);
+    for (const id of b.workers) {
+      const w = g.villagers.get(id);
+      if (!w) continue;
+      out.push(`<div class="mrow" data-selv="${w.id}" style="cursor:pointer">` +
+        `<span class="lbl">${this.faceImg(w)}<span>${esc(w.name)}</span></span>` +
+        `<span class="val dim">${esc(w.activity)}</span></div>`);
+    }
+    if (!b.workers.length) out.push('<p>Nobody is posted here. Open a post, or check the labour pool.</p>');
+    return out;
+  }
+
+  private partsGeneralWork(b: Building): string[] {
+    const g = this.game;
+    const d = b.def;
+    const out: string[] = [];
+    out.push(`<p>${d.desc}</p>`);
+
+    if (b.jobSlots > 0 || d.jobs > 0) {
+      out.push(this.row('Status', `<span style="font-weight:600;font-size:12px">${esc(b.status)}</span>`));
+      const act = Math.round(Math.min(1, b.activity) * 100);
+      out.push(this.bar(act, act < 25 ? 'hot' : ''));
+    }
+
+    // --- Farms with a crop cycle
+    if (d.crop) {
+      out.push(this.sec('The farming year', { caps: true }));
+      out.push(this.row('Plot', `${b.w}×${b.h} · ${b.area} tiles`));
+      out.push(this.row('Soil', `${Math.round(b.fertility * 100)}%`, { icon: 'herbs' }));
+      const phase = g.season === 'spring' ? (b.sown ? 'Sown — growing' : 'Sowing')
+        : g.season === 'summer' ? (b.sown ? 'Growing' : 'Not sown!')
+        : g.season === 'autumn' ? (b.cropPool > 0.01 ? 'Harvest!' : 'Harvest done')
+        : 'Dormant';
+      out.push(this.row('Phase', phase));
+      const growPct = Math.round(b.growth * 100);
+      out.push(this.row('Crop', `${growPct}%`, { icon: CROPS[b.cropType].out }));
+      out.push(this.bar(growPct));
+      if (g.season === 'autumn' && b.cropPoolInit > 0.02) {
+        const reaped = Math.round((1 - b.cropPool / b.cropPoolInit) * 100);
+        out.push(this.row('Reaped', `${reaped}%`));
+      }
+      const standing = b.standingCrop;
+      const est = Math.round(
+        b.growth * standing.yieldPerTile * b.area * (0.35 + b.fertility * 0.9) * b.rotationFactor,
+      );
+      out.push(this.row('Standing yield', `≈ ${est} ${RESOURCES[standing.out].name}`, { icon: standing.out }));
+      if (b.sown) out.push(this.row('This year’s yield', `×${b.rotationFactor.toFixed(2)}`));
+    }
+
+    // --- Herds (pasture): the flock is the whole story of this building.
+    if (d.husbandry) {
+      const h = d.husbandry;
+      const cap = Math.max(2, Math.floor(b.area / h.tilesPerHead));
+      out.push(this.sec('The flock', { caps: true }));
+      out.push(this.row('Paddock', `${b.w}×${b.h} · room for ${cap} head`));
+      out.push(this.row(`${h.animal[0].toUpperCase()}${h.animal.slice(1)}`, `${b.herd} of ${cap}`));
+      out.push(this.bar(Math.round((b.herd / cap) * 100)));
+      if (b.herd > 0 && b.herd < cap) {
+        out.push(this.row('Next lamb', `${Math.round(b.breedProgress * 100)}%`));
+      }
+      let fodder = 0;
+      for (const k of h.fodder.kinds) fodder += b.amount(k);
+      const days = b.herd > 0 ? fodder / (b.herd * h.fodder.perHeadDay) : Infinity;
+      out.push(this.row('Winter fodder',
+        b.herd <= 0 ? '—' : days === Infinity ? '—' : `${Math.floor(days)} days`,
+        { icon: 'grain' }));
+      if (this.game.season === 'winter' && b.herd > 0 && days < 2) {
+        out.push('<p class="crit">The shelf is nearly bare — lay in grain or turnips or the flock starves.</p>');
+      }
+      out.push(this.row('Shearing', `${h.tend.perHead} ${RESOURCES[h.tend.out].name} per head`, { icon: h.tend.out }));
+    }
+
+    if (d.recipe) {
+      out.push(this.sec('Recipe', { caps: true }));
+      const ins = Object.entries(d.recipe.in).map(([k, v]) => `${pic(k, 12)}${v}`).join(' + ') || '—';
+      const outs = Object.entries(d.recipe.out).map(([k, v]) => `${pic(k, 12)}${v}`).join(' + ');
+      out.push(`<div class="tags"><span class="tag">${ins} → ${outs}${b.sizeFactor !== 1 ? ` ×${b.sizeFactor.toFixed(1)}` : ''}</span>` +
+        (d.recipe.seasons ? `<span class="tag">${d.recipe.seasons.join(', ')}</span>` : '') + '</div>');
+      if (d.zone && !d.crop) out.push(this.row('Plot', `${b.w}×${b.h} · ${b.area} tiles`));
+    }
+
+    if (d.harvest) {
+      const nodes = g.world.findNodes(Math.round(b.cx), Math.round(b.cy), d.harvest.kind, d.harvest.radius, 400).length;
+      out.push(this.sec('Gathering', { caps: true }));
+      out.push(this.row(`${d.harvest.kind[0].toUpperCase()}${d.harvest.kind.slice(1)} in range`, String(nodes)));
+      out.push(this.row('Yield', `${d.harvest.yield} ${RESOURCES[d.harvest.out].name}`, { icon: d.harvest.out }));
+      if (d.harvest.seasons) out.push(this.row('Season', d.harvest.seasons.join(', ')));
+    }
+    if (d.oxen) {
+      out.push(this.sec('Draught team', { caps: true }));
+      out.push(this.row('Oxen stabled', String(d.oxen), { icon: 'ox' }));
+      out.push(this.row('Village-wide, in use', `${g.oxenInUse} / ${g.oxenTotal}`));
+      out.push(`<p>A carter hauls ${TUNING.cartCapacity} at a time instead of ${TUNING.carryCapacity}.</p>`);
+    }
+    if (d.service) {
+      out.push(this.sec('Service', { caps: true }));
+      out.push(this.row(d.service.kind[0].toUpperCase() + d.service.kind.slice(1), `${d.service.radius} tiles`));
+      out.push(this.row('Villagers served', String(b.serving)));
+    }
+    if (d.charm) out.push(this.row('Charm', `${d.charm > 0 ? '+' : ''}${d.charm} over ${d.charmRadius ?? 10} tiles`, { icon: 'charm' }));
+    if (d.upkeep) out.push(this.row('Upkeep', `${d.upkeep}c per season`, { icon: 'coins' }));
+
+    const stock = Object.entries(b.store).filter(([, val]) => (val as number) > 0.4);
+    if (stock.length) {
+      out.push(this.sec('On hand', { caps: true }));
+      out.push('<div class="tags">' + stock.map(([k, val]) =>
+        `<span class="tag">${pic(k, 12)}${Math.round(val as number)}</span>`).join('') + '</div>');
+    }
+    if (b.produced > 0) out.push(this.row('Produced in total', String(Math.round(b.produced))));
+
+    out.push(this.supplyLinesHtml(b));
+    return out;
+  }
+
+  private partsAdvanced(b: Building): string[] {
+    const g = this.game;
+    const d = b.def;
+    const out: string[] = [];
+
+    out.push(this.sec('Standing orders', { caps: true }));
+    out.push(`<div class="mrow"><span class="lbl"><span>Priority</span></span>
+      <span class="val"><span class="stepper">
+        <button class="orb" data-act="pri-minus"><span class="icn">${I.minus}</span></button>
+        <span class="v">${['Low', 'Normal', 'High', 'Urgent'][b.priority] ?? b.priority}</span>
+        <button class="orb" data-act="pri-plus"><span class="icn">${I.plus}</span></button>
+      </span></span></div>`);
+
+    if (d.recipe) {
+      const primary = Object.keys(d.recipe.out)[0] as ResId | undefined;
+      if (primary) {
+        out.push(`<div class="mrow"><span class="lbl"><span>Make until</span></span>
+          <span class="val"><span class="stepper">
+            <button class="orb" data-act="lim-minus"><span class="icn">${I.minus}</span></button>
+            <span class="v">${b.limit == null ? '∞' : b.limit}</span>
+            <button class="orb" data-act="lim-plus"><span class="icn">${I.plus}</span></button>
+          </span></span></div>`);
+        if (b.limit != null) {
+          out.push(this.row('In store now', `${Math.round(g.totalOf(primary))} ${RESOURCES[primary].name}`, { icon: primary }));
+        }
+      }
+    }
+
+    if (d.crop) {
+      out.push(this.sec('Sow next spring', {
+        caps: true,
+        tip: 'Rotating crops year to year is rewarded; repeating one tires the soil and costs yield. Beans feed the field itself.',
+      }));
+      out.push('<div class="tags">');
+      for (const ct of CROP_ORDER) {
+        const c = CROPS[ct];
+        const active = b.cropType === ct;
+        const repeat = b.lastCrop === ct;
+        out.push(`<span class="tag pick ${active ? 'on' : ''}" data-crop="${ct}" data-tip="${esc(c.name)}" data-tipb="${esc(c.blurb)}">` +
+          `${pic(c.out, 12)}${c.name}${repeat ? ' ↺' : ''}</span>`);
+      }
+      out.push('</div>');
+      out.push(`<p>${CROPS[b.cropType].blurb}</p>`);
+      if (b.lastCrop) {
+        const f = b.rotationFactorFor(b.cropType);
+        const label = f > 1 ? `Rotation bonus ×${f.toFixed(2)}`
+          : f < 1 ? `Same crop again ×${f.toFixed(2)}`
+          : 'No rotation effect';
+        out.push(this.row('Last sown', CROPS[b.lastCrop].name, { icon: CROPS[b.lastCrop].out }));
+        out.push(this.row('Next harvest', label, { vcls: f >= 1 ? '' : 'neg' }));
+      }
+    }
+
+    out.push('<div class="btn-row">');
+    out.push(`<button class="btn" data-act="pause">${b.paused ? 'Resume' : 'Pause'}</button>`);
+    out.push('<button class="btn danger" data-act="demolish">Demolish</button>');
+    out.push('</div>');
+    return out;
+  }
+
+  // ------------------------------------------------------------------ trade
+
+  private partsTrade(): string[] {
+    const g = this.game;
+    const out: string[] = [];
+
+    const filters: { key: TradeFilter; icon: string; tip: string }[] = [
+      { key: 'all', icon: 'scales', tip: 'All goods' },
+      { key: 'material', icon: 'logs', tip: 'Materials and fuel' },
+      { key: 'food', icon: 'bread', tip: 'Food' },
+      { key: 'clothing', icon: 'clothes', tip: 'Clothing' },
+      { key: 'good', icon: 'pottery', tip: 'Comforts' },
+    ];
+    out.push('<div class="trade-filters">' + filters.map((f) =>
+      `<button class="orb orb-sm ${this.tradeFilter === f.key ? 'on' : ''}" data-tfilter="${f.key}" data-tip="${f.tip}">` +
+      `${pic(f.icon, 14)}</button>`).join('') + '</div>');
+
+    const match = (r: ResId): boolean => {
+      if (this.tradeFilter === 'all') return true;
+      const cat = RESOURCES[r].cat === 'fuel' ? 'material' : RESOURCES[r].cat;
+      return cat === this.tradeFilter;
+    };
+
+    const rowFor = (r: ResId): string => {
+      const res = RESOURCES[r];
+      const have = Math.round(g.stockOf(r));
+      const rule = g.tradeRules[r];
+      const mode = rule?.sellAbove != null ? 'export' : rule?.buyBelow != null ? 'import' : 'none';
+      const tv = mode === 'export' ? rule!.sellAbove : mode === 'import' ? rule!.buyBelow : null;
+      const mod = g.trade.mod[r] ?? 1;
+      const pd = mod > 1.02 ? '<span class="pd up">▲</span>' : mod < 0.98 ? '<span class="pd down">▼</span>' : '';
+      const price = mode === 'import' ? g.buyPrice(r) : g.sellPrice(r);
+      const verb = mode === 'import' ? 'Buy' : 'Sell';
+      return `<div class="trow-t">
+        <select class="msel ${mode === 'export' ? 'exp' : mode === 'import' ? 'imp' : ''}" data-tmode="${r}">
+          <option value="none" ${mode === 'none' ? 'selected' : ''}>No trade</option>
+          <option value="export" ${mode === 'export' ? 'selected' : ''}>Export</option>
+          <option value="import" ${mode === 'import' ? 'selected' : ''}>Import</option>
+        </select>
+        ${pic(r, 14)}
+        <span class="nm">${res.name}</span>
+        <span class="have">${have}</span>
+        <span class="arr"><span class="icn">${I.arrow}</span></span>
+        <button class="orb" data-tstep="${r}" data-d="-5" ${mode === 'none' ? 'disabled' : ''}><span class="icn">${I.minus}</span></button>
+        <span class="tv ${mode === 'none' ? 'dim' : ''}">${tv == null ? '—' : tv}</span>
+        <button class="orb" data-tstep="${r}" data-d="5" ${mode === 'none' ? 'disabled' : ''}><span class="icn">${I.plus}</span></button>
+        <button class="priceb" data-tgo="${r}" data-tip="${verb} 10 now" data-tipb="At today’s price of <b>${price.toFixed(1)}c</b> each. Prices move as you flood or drain a market, then drift back over days.">
+          ${price.toFixed(1)}${pd}<span class="icn">${I.cart}</span>
+        </button>
+      </div>`;
+    };
+
+    const minor: string[] = [], major: string[] = [];
+    for (const r of ALL_RES) {
+      if (!match(r)) continue;
+      const rule = g.tradeRules[r];
+      const have = g.stockOf(r);
+      if (have < 1 && !rule && (g.trade.mod[r] ?? 1) === 1
+        && !['tools', 'stone', 'planks', 'bread', 'clothes', 'grain', 'logs'].includes(r)) continue;
+      (RESOURCES[r].price < 15 ? minor : major).push(rowFor(r));
+    }
+    if (minor.length) {
+      out.push(this.sec('Minor trades', { tip: 'Everyday goods. Standing orders run once a day: Export sells everything above the number, Import tops the stores up to it.' }));
+      out.push(...minor);
+    }
+    if (major.length) {
+      out.push(this.sec('Major trades', { tip: 'Fine goods fetch real coin — and cost real coin to bring in.' }));
+      out.push(...major);
+    }
+    if (!minor.length && !major.length) out.push('<p>Nothing of this kind is in store or on order.</p>');
+    return out;
+  }
+
+  // -------------------------------------------------------------- villagers
+
+  private partsVillager(v: Villager): string[] {
+    const g = this.game;
+    const out: string[] = [];
+    const job = v.jobId >= 0 ? g.buildings.get(v.jobId) : undefined;
+    const home = v.homeId >= 0 ? g.buildings.get(v.homeId) : undefined;
+    out.push(`<p>${esc(v.activity)}.</p>`);
+    out.push(this.sec('Life', { caps: true }));
+    out.push(this.row('Age', String(Math.floor(v.age))));
+    out.push(this.row('Role', job ? job.name : v.jobTitle, { icon: job ? CAT_PIC[job.def.cat] : 'idle' }));
+    out.push(this.row('Home', home ? home.tierDef().name : 'None', { icon: home ? 'housing' : 'homeless' }));
+    const fam = v.familyId >= 0 ? g.families.get(v.familyId) : undefined;
+    if (fam) out.push(this.row('Family', `The ${fam.surname}s (${fam.size})`, { icon: 'family' }));
+    const hp = Math.round(v.health * 100);
+    out.push(this.row('Health', `${hp}%`));
+    out.push(this.bar(hp, hp < 40 ? 'hot' : hp < 70 ? '' : 'cool'));
+    const sk = Math.round(((v.skill - 0.6) / 1.25) * 100);
+    out.push(this.row('Skill', `${v.skill.toFixed(2)}×`));
+    out.push(this.bar(sk));
+    const tags: string[] = [];
+    if (v.educated) tags.push(`<span class="tag ok">${pic('book', 12)}Schooled</span>`);
+    if (v.hasOx) tags.push(`<span class="tag ok">${pic('ox', 12)}Driving a cart</span>`);
+    if (v.carry) tags.push(`<span class="tag">${pic(v.carry.res, 12)}Carrying ${Math.round(v.carry.amt)} ${RESOURCES[v.carry.res].name}</span>`);
+    if (tags.length) out.push(`<div class="tags">${tags.join('')}</div>`);
+
+    if (v.isAdult) {
+      out.push(this.sec('Assign to', { caps: true, tip: 'The nearest workplaces with an open post.' }));
+      const openings = [...g.buildings.values()]
+        .filter((b) => b.state === 'active' && b.jobSlots > 0 && b.workers.length < b.jobSlots)
+        .sort((a, b) => Math.hypot(a.cx - v.x, a.cy - v.y) - Math.hypot(b.cx - v.x, b.cy - v.y))
+        .slice(0, 8);
+      out.push('<div class="tags">');
+      out.push('<span class="tag pick" data-job="-1">Labourer</span>');
+      for (const b of openings) {
+        out.push(`<span class="tag pick" data-job="${b.id}">${pic(CAT_PIC[b.def.cat], 12)}${b.name}</span>`);
+      }
+      out.push('</div>');
+    }
+    return out;
+  }
+
+  // ----------------------------------------------------------- body wiring
 
   private supplyLinesHtml(b: Building): string {
     const g = this.game;
@@ -474,259 +1332,30 @@ export class UI {
     }
     if (!seen.size) return '';
     const rows = [...seen.values()].map((f) =>
-      `<div class="flowline"><span class="${f.dir}">${f.dir === 'in' ? '⬅' : '➡'} ${RESOURCES[f.res].icon} ${Math.round(f.amt)} ${RESOURCES[f.res].name}</span><b>${f.dir === 'in' ? 'from' : 'to'} ${f.other}</b></div>`,
+      `<div class="flowline"><span class="${f.dir}">${f.dir === 'in' ? '⬅' : '➡'} ${pic(f.res, 12)} ${Math.round(f.amt)} ${RESOURCES[f.res].name}</span><b>${f.dir === 'in' ? 'from' : 'to'} ${esc(f.other)}</b></div>`,
     );
-    return `<div class="section">Supply lines (recent)</div>${rows.join('')}`;
+    return this.sec('Supply lines', { caps: true, tip: 'Recent deliveries in and out of this building.' }) + rows.join('');
   }
 
-  private renderBuildingInspector(b: Building): void {
+  private wireBody(b: Building): void {
+    const body = $('insp-body');
     const g = this.game;
-    const d = b.def;
-    $('insp-title').textContent = b.isHouse ? `${b.tierDef().name}` : d.name;
-    const body = $('insp-body');
-    const out: string[] = [];
 
-    out.push(`<p>${d.desc}</p>`);
-
-    if (b.state !== 'active') {
-      const pct = Math.round(b.buildFraction * 100);
-      out.push('<div class="section">Under construction</div>');
-      if (d.zone) out.push(`<div class="row"><span>Plot</span><b>${b.w}×${b.h} (${b.area} tiles)</b></div>`);
-      const owed = b.materialsOwed('delivered');
-      const owedList = Object.entries(owed)
-        .map(([k, v]) => `<span class="chip no">${RESOURCES[k as ResId].icon} ${Math.ceil(v as number)} ${RESOURCES[k as ResId].name}</span>`)
-        .join('');
-      out.push(owedList
-        ? `<div class="chips">${owedList}</div><p style="margin-top:6px">Waiting on materials.</p>`
-        : `<div class="row"><span>Frame</span><b>${pct}%</b></div>
-           <div class="bar warm"><i style="width:${pct}%"></i></div>`);
-      out.push(`<div class="btn-row">
-        <button class="btn" data-act="pause">${b.paused ? 'Resume' : 'Hold'}</button>
-        <button class="btn danger" data-act="cancel">Cancel</button></div>`);
-      body.innerHTML = out.join('');
-      this.wireInspectorButtons(b);
-      return;
+    for (const el of body.querySelectorAll('[data-selv]')) {
+      (el as HTMLElement).onclick = () => {
+        const v = g.villagers.get(Number((el as HTMLElement).dataset.selv));
+        if (v) { this.selectVillager(v); this.cb.onFocus(v.x, v.y); }
+      };
     }
-
-    // --- Housing
-    if (b.isHouse) {
-      const tierDef = b.tierDef();
-      const next = HOUSE_TIERS[b.tier];
-      out.push('<div class="section">Household</div>');
-      const fams = b.familyIds.map((id) => g.families.get(id)).filter(Boolean);
-      if (fams.length) {
-        out.push('<div class="chips">' + fams.map((f) =>
-          `<span class="chip ok">👪 The ${f!.surname}s · ${f!.size}</span>`).join('') + '</div>');
-      }
-      out.push(`<div class="row"><span>Residents</span><b>${b.residents.length} / ${b.capacityResidents}</b></div>`);
-      out.push(`<div class="row"><span>Families</span><b>${b.families} / ${b.capacityFamilies}</b></div>`);
-      const born = fams.reduce((n, f) => n + (f?.childrenBorn ?? 0), 0);
-      if (born > 0) out.push(`<div class="row"><span>Children raised here</span><b>${born}</b></div>`);
-      out.push(`<div class="row"><span>Tax each season</span><b>${Math.round(tierDef.tax * b.families)}c</b></div>`);
-      const cPct = Math.round(b.contentment * 100);
-      out.push(`<div class="row"><span>Contentment</span><b>${cPct}%</b></div>
-        <div class="bar ${cPct < 40 ? 'hot' : cPct < 65 ? 'warm' : ''}"><i style="width:${cPct}%"></i></div>`);
-      if (b.rationing) out.push('<p style="margin-top:6px">Rationing from the storehouse — the stalls were bare.</p>');
-
-      // Why that number: every mood source, best shortfalls first. A penalty
-      // (crowding) has no ceiling and renders as a plain negative.
-      if (b.moodParts.length) {
-        out.push('<div class="section">What the household feels</div>');
-        const ranked = [...b.moodParts].sort((a, z) => (a[2] - a[1]) - (z[2] - z[1])).reverse();
-        for (const [label, earned, ceiling] of ranked) {
-          // No ceiling means an event or a penalty, not a need being met —
-          // mourning weighs, a new baby lifts. Show it signed, no bar.
-          if (ceiling === 0) {
-            const up = earned > 0;
-            out.push(`<div class="row"><span>${label}</span>` +
-              `<b class="${up ? 'pos' : 'neg'}">${up ? '+' : '−'}${Math.abs(earned * 100).toFixed(0)}</b></div>`);
-            continue;
-          }
-          const pct = Math.round((earned / ceiling) * 100);
-          out.push(`<div class="row"><span>${label}</span><b>${(earned * 100).toFixed(0)} of ${(ceiling * 100).toFixed(0)}</b></div>
-            <div class="bar ${pct < 35 ? 'hot' : pct < 70 ? 'warm' : ''}"><i style="width:${pct}%"></i></div>`);
-        }
-      }
-
-      out.push('<div class="section">Supplied</div><div class="chips">');
-      const s = b.supply;
-      for (const f of FOOD_TYPES) if (s.foodTypes.has(f)) out.push(`<span class="chip ok">${RESOURCES[f].icon} ${RESOURCES[f].name}</span>`);
-      for (const c of CLOTHING_TYPES) if (s.clothingTypes.has(c)) out.push(`<span class="chip ok">${RESOURCES[c].icon} ${RESOURCES[c].name}</span>`);
-      for (const l of LUXURY_TYPES) if (s.luxuryTypes.has(l)) out.push(`<span class="chip ok">${RESOURCES[l].icon} ${RESOURCES[l].name}</span>`);
-      out.push(s.fuelDays > 0.4 ? '<span class="chip ok">🔥 Warm</span>' : '<span class="chip no">🔥 Cold</span>');
-      out.push('</div>');
-
-      out.push('<div class="section">Services in range</div><div class="chips">');
-      const svc: [string, string][] = [
-        ['water', '🪣 Water'], ['faith', '⛪ Faith'], ['leisure', '🍻 Tavern'],
-        ['health', '🩺 Healer'], ['market', '🏪 Market'], ['learning', '📚 School'],
-      ];
-      for (const [k, label] of svc) {
-        const has = (b.services as Record<string, number | undefined>)[k];
-        out.push(`<span class="chip ${has ? 'ok' : 'no'}">${label}</span>`);
-      }
-      out.push(`<span class="chip ${b.localCharm >= 14 ? 'ok' : ''}">🌷 Charm ${b.localCharm.toFixed(0)}</span>`);
-      out.push('</div>');
-
-      if (next) {
-        out.push(`<div class="section">To become a ${next.name}</div>`);
-        if (b.upgradeBlockers.length === 0) out.push('<p>Everything is in place. It will upgrade shortly.</p>');
-        else out.push('<div class="chips">' + b.upgradeBlockers.map((x) => `<span class="chip no">${x}</span>`).join('') + '</div>');
-      } else {
-        out.push('<div class="section">Fully grown</div><p>This is as fine as a house gets.</p>');
-      }
-      out.push(this.supplyLinesHtml(b));
-      out.push('<div class="btn-row"><button class="btn danger" data-act="demolish">Demolish</button></div>');
-      body.innerHTML = out.join('');
-      this.wireInspectorButtons(b);
-      return;
-    }
-
-    // --- Farms with a crop cycle
-    if (d.crop) {
-      out.push('<div class="section">The farming year</div>');
-      out.push(`<div class="row"><span>Plot</span><b>${b.w}×${b.h} (${b.area} tiles)</b></div>`);
-      out.push(`<div class="row"><span>Soil</span><b>${Math.round(b.fertility * 100)}%</b></div>`);
-      const phase = g.season === 'spring' ? (b.sown ? 'Sown — growing' : 'Sowing')
-        : g.season === 'summer' ? (b.sown ? 'Growing' : 'Not sown!')
-        : g.season === 'autumn' ? (b.cropPool > 0.01 ? 'Harvest!' : 'Harvest done')
-        : 'Dormant';
-      out.push(`<div class="row"><span>Phase</span><b>${phase}</b></div>`);
-      const growPct = Math.round(b.growth * 100);
-      out.push(`<div class="row"><span>Crop</span><b>${growPct}%</b></div>
-        <div class="bar gold"><i style="width:${growPct}%"></i></div>`);
-      if (g.season === 'autumn' && b.cropPoolInit > 0.02) {
-        const reaped = Math.round((1 - b.cropPool / b.cropPoolInit) * 100);
-        out.push(`<div class="row"><span>Reaped</span><b>${reaped}%</b></div>`);
-      }
-      const standing = b.standingCrop;
-      const est = Math.round(
-        b.growth * standing.yieldPerTile * b.area * (0.35 + b.fertility * 0.9) * b.rotationFactor,
-      );
-      out.push(`<div class="row"><span>Standing yield</span><b>≈ ${est} ${RESOURCES[standing.out].name}</b></div>`);
-
-      out.push('<div class="section">Sow next spring</div><div class="chips">');
-      for (const ct of CROP_ORDER) {
-        const c = CROPS[ct];
-        const on = b.cropType === ct;
-        const repeat = b.lastCrop === ct;
-        out.push(
-          `<span class="chip ${on ? 'ok' : ''}" data-crop="${ct}" style="cursor:pointer"` +
-          ` title="${c.blurb}">${c.icon} ${c.name}${repeat ? ' ↺' : ''}</span>`,
-        );
-      }
-      out.push('</div>');
-      out.push(`<p style="margin-top:6px">${CROPS[b.cropType].blurb}</p>`);
-      if (b.lastCrop) {
-        const f = b.rotationFactorFor(b.cropType);
-        const label = f > 1 ? `Rotation bonus ×${f.toFixed(2)}`
-          : f < 1 ? `Same crop again ×${f.toFixed(2)}`
-          : 'No rotation effect';
-        out.push(`<div class="row"><span>Last sown</span><b>${CROPS[b.lastCrop].name}</b></div>`);
-        out.push(`<div class="row"><span>Next harvest</span><b class="${f >= 1 ? '' : 'warn'}">${label}</b></div>`);
-      }
-      if (b.sown) {
-        out.push(`<div class="row"><span>This year's yield</span><b>×${b.rotationFactor.toFixed(2)}</b></div>`);
-      }
-    }
-
-    // --- Workplaces
-    if (b.jobSlots > 0 || d.jobs > 0) {
-      out.push('<div class="section">Workers</div>');
-      out.push(`<div class="row"><span>Assigned</span>
-        <span class="stepper">
-          <button data-act="minus">−</button>
-          <span class="v">${b.workers.length} / ${b.jobSlots}</span>
-          <button data-act="plus">+</button>
-        </span></div>`);
-      out.push(`<div class="row"><span>Priority</span>
-        <span class="stepper">
-          <button data-act="pri-minus">−</button>
-          <span class="v">${['Low', 'Normal', 'High', 'Urgent'][b.priority] ?? b.priority}</span>
-          <button data-act="pri-plus">+</button>
-        </span></div>`);
-      out.push(`<div class="row"><span>Status</span><b style="font-size:12px">${b.status}</b></div>`);
-      const act = Math.round(Math.min(1, b.activity) * 100);
-      out.push(`<div class="bar ${act < 25 ? 'hot' : act < 60 ? 'warm' : ''}"><i style="width:${act}%"></i></div>`);
-    }
-
-    if (d.recipe) {
-      out.push('<div class="section">Recipe</div><div class="chips">');
-      const ins = Object.entries(d.recipe.in).map(([k, v]) => `${RESOURCES[k as ResId].icon}${v}`).join(' + ') || '—';
-      const outs = Object.entries(d.recipe.out).map(([k, v]) => `${RESOURCES[k as ResId].icon}${v}`).join(' + ');
-      out.push(`<span class="chip">${ins} → ${outs}${b.sizeFactor !== 1 ? ` ×${b.sizeFactor.toFixed(1)}` : ''}</span>`);
-      if (d.recipe.seasons) out.push(`<span class="chip">${d.recipe.seasons.join(', ')}</span>`);
-      out.push('</div>');
-      if (d.zone) out.push(`<div class="row"><span>Plot</span><b>${b.w}×${b.h} (${b.area} tiles)</b></div>`);
-      if (d.cat === 'farming') out.push(`<div class="row"><span>Soil quality</span><b>${Math.round(b.fertility * 100)}%</b></div>`);
-
-      // Production cap: hold the bench once the village owns this much.
-      const primary = Object.keys(d.recipe.out)[0] as ResId | undefined;
-      if (primary) {
-        out.push(`<div class="row"><span>Make until</span>
-          <span class="stepper">
-            <button data-act="lim-minus">−</button>
-            <span class="v">${b.limit == null ? '∞' : b.limit}</span>
-            <button data-act="lim-plus">+</button>
-          </span></div>`);
-        if (b.limit != null) {
-          out.push(`<div class="row"><span>In store now</span><b>${Math.round(g.totalOf(primary))} ${RESOURCES[primary].name}</b></div>`);
-        }
-      }
-    }
-    if (d.harvest) {
-      const nodes = g.world.findNodes(Math.round(b.cx), Math.round(b.cy), d.harvest.kind, d.harvest.radius, 400).length;
-      out.push('<div class="section">Gathering</div>');
-      out.push(`<div class="row"><span>${d.harvest.kind} in range</span><b>${nodes}</b></div>`);
-      out.push(`<div class="row"><span>Yield</span><b>${d.harvest.yield} ${RESOURCES[d.harvest.out].name}</b></div>`);
-      if (d.harvest.seasons) out.push(`<div class="row"><span>Season</span><b style="font-size:12px">${d.harvest.seasons.join(', ')}</b></div>`);
-    }
-    if (d.oxen) {
-      out.push('<div class="section">Draught team</div>');
-      out.push(`<div class="row"><span>Oxen stabled</span><b>${d.oxen}</b></div>`);
-      out.push(`<div class="row"><span>Village-wide, in use</span><b>${g.oxenInUse} / ${g.oxenTotal}</b></div>`);
-      out.push(`<p style="margin-top:4px">A carter hauls ${TUNING.cartCapacity} at a time instead of ${TUNING.carryCapacity}.</p>`);
-    }
-    if (d.service) {
-      out.push('<div class="section">Service</div>');
-      out.push(`<div class="row"><span>${d.service.kind}</span><b>${d.service.radius} tiles</b></div>`);
-      out.push(`<div class="row"><span>Villagers served</span><b>${b.serving}</b></div>`);
-    }
-    if (d.charm) out.push(`<div class="row"><span>Charm</span><b>${d.charm > 0 ? '+' : ''}${d.charm} over ${d.charmRadius ?? 10} tiles</b></div>`);
-    if (d.upkeep) out.push(`<div class="row"><span>Upkeep</span><b>${d.upkeep}c per season</b></div>`);
-
-    const stock = Object.entries(b.store).filter(([, v]) => (v as number) > 0.4);
-    if (stock.length) {
-      out.push('<div class="section">On hand</div><div class="chips">');
-      out.push(stock.map(([k, v]) => `<span class="chip">${RESOURCES[k as ResId].icon} ${Math.round(v as number)}</span>`).join(''));
-      out.push('</div>');
-    }
-    if (b.produced > 0) out.push(`<div class="row" style="margin-top:8px"><span>Produced in total</span><b>${Math.round(b.produced)}</b></div>`);
-
-    out.push(this.supplyLinesHtml(b));
-
-    out.push('<div class="btn-row">');
-    if (d.id === 'tradepost') out.push('<button class="btn primary" data-act="trade">Open trade</button>');
-    out.push(`<button class="btn" data-act="pause">${b.paused ? 'Resume' : 'Pause'}</button>`);
-    out.push('<button class="btn danger" data-act="demolish">Demolish</button>');
-    out.push('</div>');
-
-    body.innerHTML = out.join('');
-    this.wireInspectorButtons(b);
-  }
-
-  private wireInspectorButtons(b: Building): void {
-    const body = $('insp-body');
     for (const el of body.querySelectorAll('[data-crop]')) {
       (el as HTMLElement).onclick = () => {
         b.cropType = (el as HTMLElement).dataset.crop as CropType;
-        this.renderInspector();
+        this.renderBody();
       };
     }
     for (const el of body.querySelectorAll('[data-act]')) {
       const act = (el as HTMLElement).dataset.act;
       (el as HTMLElement).onclick = () => {
-        const g = this.game;
         switch (act) {
           case 'plus': g.setJobSlots(b.id, b.jobSlots + 1); break;
           case 'minus': g.setJobSlots(b.id, b.jobSlots - 1); break;
@@ -737,60 +1366,57 @@ export class UI {
           case 'pause': b.paused = !b.paused; break;
           case 'demolish':
           case 'cancel': this.cb.onDemolish(b.id); this.clearSelection(); return;
-          case 'trade': this.openTrade(); break;
         }
         this.renderInspector();
       };
     }
+
+    // Trade tab.
+    for (const el of body.querySelectorAll('[data-tfilter]')) {
+      (el as HTMLElement).onclick = () => {
+        this.tradeFilter = (el as HTMLElement).dataset.tfilter as TradeFilter;
+        this.renderBody();
+      };
+    }
+    for (const el of body.querySelectorAll('[data-tmode]')) {
+      (el as HTMLSelectElement).onchange = () => {
+        const r = (el as HTMLElement).dataset.tmode as ResId;
+        const mode = (el as HTMLSelectElement).value;
+        const prev = g.tradeRules[r];
+        const kept = prev?.sellAbove ?? prev?.buyBelow ?? 10;
+        if (mode === 'none') delete g.tradeRules[r];
+        else if (mode === 'export') g.tradeRules[r] = { sellAbove: kept };
+        else g.tradeRules[r] = { buyBelow: kept };
+        this.renderBody();
+      };
+    }
+    for (const el of body.querySelectorAll('[data-tstep]')) {
+      (el as HTMLElement).onclick = () => {
+        const r = (el as HTMLElement).dataset.tstep as ResId;
+        const d = Number((el as HTMLElement).dataset.d);
+        const rule = g.tradeRules[r];
+        if (!rule) return;
+        if (rule.sellAbove != null) rule.sellAbove = Math.max(0, rule.sellAbove + d);
+        else if (rule.buyBelow != null) rule.buyBelow = Math.max(0, rule.buyBelow + d);
+        this.renderBody();
+      };
+    }
+    for (const el of body.querySelectorAll('[data-tgo]')) {
+      (el as HTMLElement).onclick = () => {
+        const r = (el as HTMLElement).dataset.tgo as ResId;
+        const rule = g.tradeRules[r];
+        const res = rule?.buyBelow != null ? g.buy(r, 10) : g.sell(r, 10);
+        g.log(res.msg, res.ok ? 'good' : 'bad');
+        this.renderBody();
+      };
+    }
   }
 
-  private renderVillagerInspector(v: Villager): void {
-    const g = this.game;
-    $('insp-title').textContent = v.name;
-    const job = v.jobId >= 0 ? g.buildings.get(v.jobId) : undefined;
-    const home = v.homeId >= 0 ? g.buildings.get(v.homeId) : undefined;
-    const out: string[] = [];
-    out.push(`<p>${v.activity}.</p>`);
-    out.push('<div class="section">Life</div>');
-    out.push(`<div class="row"><span>Age</span><b>${Math.floor(v.age)}</b></div>`);
-    out.push(`<div class="row"><span>Role</span><b>${job ? job.name : v.jobTitle}</b></div>`);
-    out.push(`<div class="row"><span>Home</span><b>${home ? home.tierDef().name : 'None'}</b></div>`);
-    const fam = v.familyId >= 0 ? g.families.get(v.familyId) : undefined;
-    if (fam) {
-      out.push(`<div class="row"><span>Family</span><b>The ${fam.surname}s (${fam.size})</b></div>`);
-    }
-    if (v.hasOx) out.push('<div class="chips" style="margin-top:6px"><span class="chip ok">🐂 Driving a cart</span></div>');
-    const hp = Math.round(v.health * 100);
-    out.push(`<div class="row"><span>Health</span><b>${hp}%</b></div>
-      <div class="bar ${hp < 40 ? 'hot' : hp < 70 ? 'warm' : ''}"><i style="width:${hp}%"></i></div>`);
-    const sk = Math.round(((v.skill - 0.6) / 1.25) * 100);
-    out.push(`<div class="row"><span>Skill</span><b>${v.skill.toFixed(2)}×</b></div>
-      <div class="bar"><i style="width:${Math.max(0, Math.min(100, sk))}%"></i></div>`);
-    if (v.educated) out.push('<div class="chips" style="margin-top:6px"><span class="chip ok">📚 Schooled</span></div>');
-    if (v.carry) {
-      out.push(`<div class="section">Carrying</div><div class="chips">
-        <span class="chip">${RESOURCES[v.carry.res].icon} ${Math.round(v.carry.amt)} ${RESOURCES[v.carry.res].name}</span></div>`);
-    }
-
-    if (v.isAdult) {
-      out.push('<div class="section">Assign to</div>');
-      const openings = [...g.buildings.values()]
-        .filter((b) => b.state === 'active' && b.jobSlots > 0 && b.workers.length < b.jobSlots)
-        .sort((a, b) => Math.hypot(a.cx - v.x, a.cy - v.y) - Math.hypot(b.cx - v.x, b.cy - v.y))
-        .slice(0, 8);
-      out.push('<div class="chips">');
-      out.push('<span class="chip" data-job="-1" style="cursor:pointer">Labourer</span>');
-      for (const b of openings) {
-        out.push(`<span class="chip" data-job="${b.id}" style="cursor:pointer">${b.def.icon} ${b.name}</span>`);
-      }
-      out.push('</div>');
-    }
-
+  private wireVillagerBody(v: Villager): void {
     const body = $('insp-body');
-    body.innerHTML = out.join('');
     for (const el of body.querySelectorAll('[data-job]')) {
       (el as HTMLElement).onclick = () => {
-        g.assignVillager(v.id, Number((el as HTMLElement).dataset.job));
+        this.game.assignVillager(v.id, Number((el as HTMLElement).dataset.job));
         this.renderInspector();
       };
     }
@@ -799,10 +1425,9 @@ export class UI {
   // ----------------------------------------------------------------- ledger
 
   /**
-   * The numbers the village has been keeping all along, finally on a page:
-   * 240 days of coin, heads and contentment, today's flows including what
-   * rotted, and where the hands actually are. The spec calls this the
-   * "is the economy producing but failing to move goods?" panel.
+   * The numbers the village has been keeping all along: 240 days of coin,
+   * heads and contentment, today's flows including what rotted, and where
+   * the hands actually are.
    */
   private renderLedger(): void {
     this.ledgerDrawn = performance.now();
@@ -823,7 +1448,7 @@ export class UI {
     out.push('</div>');
 
     // Today's flows: what was made, eaten, and lost to rot.
-    out.push('<div class="section">Today</div>');
+    out.push(this.sec('Today', { caps: true }));
     out.push('<table class="ledger-table"><tr><th>Good</th><th>Made</th><th>Used</th><th>Rotted</th><th>Store</th></tr>');
     const rows: ResId[] = [...FOOD_TYPES, 'firewood'];
     for (const r of rows) {
@@ -832,7 +1457,7 @@ export class UI {
       const rot = g.stats.spoiledToday[r] ?? 0;
       const have = g.stockOf(r);
       if (made < 0.05 && used < 0.05 && rot < 0.05 && have < 0.5) continue;
-      out.push(`<tr><td>${RESOURCES[r].icon} ${RESOURCES[r].name}</td>` +
+      out.push(`<tr><td>${pic(r, 13)} ${RESOURCES[r].name}</td>` +
         `<td class="${made > 0.05 ? 'pos' : ''}">${made > 0.05 ? `+${made.toFixed(1)}` : '·'}</td>` +
         `<td>${used > 0.05 ? `−${used.toFixed(1)}` : '·'}</td>` +
         `<td class="${rot > 0.05 ? 'neg' : ''}">${rot > 0.05 ? `−${rot.toFixed(1)}` : '·'}</td>` +
@@ -840,31 +1465,12 @@ export class UI {
     }
     out.push('</table>');
 
-    // The chronicle of firsts: done ones dated, the three nearest next.
-    out.push('<div class="section">Milestones</div>');
-    const done = MILESTONES.filter((m) => g.milestonesDone[m.id] !== undefined);
-    const open = MILESTONES
-      .filter((m) => g.milestonesDone[m.id] === undefined)
-      .map((m) => ({ m, p: m.progress(g) }))
-      .sort((a, b) => (b.p.value / b.p.target) - (a.p.value / a.p.target));
-    for (const m of done) {
-      const day = g.milestonesDone[m.id];
-      out.push(`<div class="row"><span>✓ ${m.name}</span><b>Year ${Math.floor(day / (TUNING.daysPerSeason * 4)) + 1}</b></div>`);
-    }
-    for (const { m, p } of open.slice(0, 3)) {
-      const pct = Math.round((p.value / p.target) * 100);
-      out.push(`<div class="row"><span>${m.name}</span><b>${pct}%</b></div>
-        <div class="bar"><i style="width:${pct}%"></i></div>
-        <div class="hint" style="margin:-2px 0 4px">${m.desc}</div>`);
-    }
-    if (!open.length) out.push('<p>Every milestone reached. The valley is yours.</p>');
-
     // Labour and logistics: the "producing but not moving" diagnostics.
     const starved = [...g.buildings.values()].filter((b) =>
       b.state === 'active' && b.workers.length > 0 && b.status.startsWith('Waiting for')).length;
     const receipts = g.hauls.size;
     const cap = storageCapacity(g);
-    out.push('<div class="section">Hands and haulage</div>');
+    out.push(this.sec('Hands and haulage', { caps: true }));
     out.push('<table class="ledger-table">');
     out.push(`<tr><td>Working / adults</td><td>${g.employed} / ${g.adults}</td></tr>`);
     out.push(`<tr><td>Labour pool</td><td>${g.idleAdults}</td></tr>`);
@@ -875,79 +1481,31 @@ export class UI {
     out.push(`<tr><td>Days of food in store</td><td>${foodDaysLeft(g).toFixed(1)}</td></tr>`);
     out.push('</table>');
 
+    // The chronicle of firsts: done ones dated, the three nearest next. This
+    // section fell out once already when the ledger was restyled — milestones
+    // are why a sandbox player opens this panel at all.
+    out.push(this.sec('Milestones', { caps: true }));
+    const done = MILESTONES.filter((m) => g.milestonesDone[m.id] !== undefined);
+    const open = MILESTONES
+      .filter((m) => g.milestonesDone[m.id] === undefined)
+      .map((m) => ({ m, p: m.progress(g) }))
+      .sort((a, b) => (b.p.value / b.p.target) - (a.p.value / a.p.target));
+    out.push('<table class="ledger-table">');
+    for (const m of done) {
+      const day = g.milestonesDone[m.id];
+      out.push(`<tr><td>✓ ${m.name}</td><td>Year ${Math.floor(day / (TUNING.daysPerSeason * 4)) + 1}</td></tr>`);
+    }
+    for (const { m, p } of open.slice(0, 3)) {
+      const pct = Math.round((p.value / p.target) * 100);
+      out.push(`<tr><td data-tip="${m.name}" data-tipb="${m.desc}">${m.name}</td><td>${pct}%</td></tr>`);
+    }
+    out.push('</table>');
+    if (!open.length) out.push('<p>Every milestone reached. The valley is yours.</p>');
+
     $('ledger-body').innerHTML = out.join('');
     for (const [label, , series] of sparks) {
       const canvas = document.querySelector(`[data-spark="${label}"]`) as HTMLCanvasElement | null;
       if (canvas) drawSpark(canvas, series);
-    }
-  }
-
-  // ------------------------------------------------------------------ trade
-
-  openTrade(): void { this.tradeOpen = true; $('trade').classList.remove('hidden'); this.renderTrade(); }
-  closeTrade(): void { this.tradeOpen = false; $('trade').classList.add('hidden'); }
-
-  private renderTrade(): void {
-    const g = this.game;
-    const host = $('trade-list');
-    // Rebuilding inputs while the user types in them would eat keystrokes.
-    if (host.querySelector('input:focus')) return;
-    const rows: string[] = [];
-    for (const r of ALL_RES) {
-      const have = g.stockOf(r);
-      const mod = g.trade.mod[r] ?? 1;
-      const rule = g.tradeRules[r];
-      const trend = mod > 1.02 ? 'up' : mod < 0.98 ? 'down' : '';
-      const arrow = mod > 1.02 ? '▲' : mod < 0.98 ? '▼' : '·';
-      if (have < 1 && mod === 1 && !rule && !['tools', 'stone', 'planks', 'bread', 'clothes', 'grain'].includes(r)) continue;
-      rows.push(`
-        <div class="trade-row">
-          <div>${RESOURCES[r].icon}</div>
-          <div>${RESOURCES[r].name}<div class="price">in store: ${Math.round(have)}</div></div>
-          <div class="price ${trend}">${arrow} ${Math.round(mod * 100)}%</div>
-          <div class="price">sell ${g.sellPrice(r).toFixed(1)}c · buy ${g.buyPrice(r).toFixed(1)}c</div>
-          <div class="orders">
-            sell&nbsp;›<input type="number" min="0" data-rule-sell="${r}" value="${rule?.sellAbove ?? ''}" placeholder="—">
-            buy&nbsp;‹<input type="number" min="0" data-rule-buy="${r}" value="${rule?.buyBelow ?? ''}" placeholder="—">
-          </div>
-          <div class="acts">
-            <button data-sell="${r}" data-n="10">Sell 10</button>
-            <button data-sell="${r}" data-n="50">50</button>
-            <button data-buy="${r}" data-n="10">Buy 10</button>
-          </div>
-        </div>`);
-    }
-    host.innerHTML = rows.join('') || '<p class="hint">Nothing to trade yet.</p>';
-    for (const el of host.querySelectorAll('[data-sell]')) {
-      (el as HTMLElement).onclick = () => {
-        const res = (el as HTMLElement).dataset.sell as ResId;
-        const r = g.sell(res, Number((el as HTMLElement).dataset.n));
-        g.log(r.msg, r.ok ? 'good' : 'bad');
-        this.renderTrade();
-      };
-    }
-    for (const el of host.querySelectorAll('[data-buy]')) {
-      (el as HTMLElement).onclick = () => {
-        const res = (el as HTMLElement).dataset.buy as ResId;
-        const r = g.buy(res, Number((el as HTMLElement).dataset.n));
-        g.log(r.msg, r.ok ? 'good' : 'bad');
-        this.renderTrade();
-      };
-    }
-    const bindRule = (el: HTMLInputElement, res: ResId, kind: 'sellAbove' | 'buyBelow') => {
-      el.onchange = () => {
-        const v = el.value === '' ? null : Math.max(0, Math.round(Number(el.value)));
-        const rule = g.tradeRules[res] ?? {};
-        rule[kind] = v;
-        if (rule.sellAbove == null && rule.buyBelow == null) delete g.tradeRules[res];
-        else g.tradeRules[res] = rule;
-      };
-    };
-    for (const el of host.querySelectorAll('[data-rule-sell]')) {
-      bindRule(el as HTMLInputElement, (el as HTMLElement).dataset.ruleSell as ResId, 'sellAbove');
-    }
-    for (const el of host.querySelectorAll('[data-rule-buy]')) {
-      bindRule(el as HTMLInputElement, (el as HTMLElement).dataset.ruleBuy as ResId, 'buyBelow');
     }
   }
 
@@ -964,9 +1522,9 @@ export class UI {
       const job = v.jobId >= 0 ? g.buildings.get(v.jobId) : undefined;
       return `
         <div class="person">
-          <div class="who"><b>${v.name}</b><span>${Math.floor(v.age)} years · ${v.jobTitle}</span></div>
-          <div class="what">${job ? `${job.def.icon} ${job.name}` : 'Labourer'}</div>
-          <div class="what">${v.activity}</div>
+          <div class="who">${this.faceImg(v, 26)}<div><b>${esc(v.name)}</b><span>${Math.floor(v.age)} years · ${esc(v.jobTitle)}</span></div></div>
+          <div class="what">${job ? `${pic(CAT_PIC[job.def.cat], 12)} ${esc(job.name)}` : 'Labourer'}</div>
+          <div class="what">${esc(v.activity)}</div>
           <div><button class="btn" data-goto="${v.id}">Find</button></div>
         </div>`;
     };
@@ -983,12 +1541,12 @@ export class UI {
       if (!members.length) continue;
       const home = f.homeId >= 0 ? g.buildings.get(f.homeId) : undefined;
       const mood = home && home.residents.length ? ` · ${Math.round(home.contentment * 100)}% content` : '';
-      out.push(`<div class="section">The ${f.surname}s · ${members.length}${mood}</div>`);
+      out.push(this.sec(`The ${f.surname}s · ${members.length}${mood}`, { caps: true }));
       for (const v of members) { out.push(person(v)); shown.add(v.id); }
     }
     const loose = [...g.villagers.values()].filter((v) => !shown.has(v.id));
     if (loose.length) {
-      out.push(`<div class="section">Between homes · ${loose.length}</div>`);
+      out.push(this.sec(`Between homes · ${loose.length}`, { caps: true }));
       for (const v of loose.sort((a, b) => b.age - a.age)) out.push(person(v));
     }
     const host = $('people-list');
@@ -1026,7 +1584,7 @@ function drawSpark(canvas: HTMLCanvasElement, series: number[]): void {
     const y = h - pad - ((series[i] - min) / (max - min)) * (h - pad * 2);
     if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
   }
-  ctx.strokeStyle = 'rgba(122, 90, 58, 0.85)';
+  ctx.strokeStyle = 'rgba(217, 189, 124, 0.9)';
   ctx.lineWidth = 1.5;
   ctx.stroke();
 }

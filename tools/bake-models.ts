@@ -41,16 +41,30 @@ const LIST_ONLY = process.argv.includes('--list');
  * its own piece of work.
  */
 const MODELS: { file: string; name: string; budget: number }[] = [
-  { file: 'cottage_housing (1)', name: 'cottage', budget: 1000 },
-  { file: 'longhouse_housing (1)', name: 'longhouse', budget: 1100 },
-  { file: 'granary_storage', name: 'granary', budget: 1000 },
-  { file: 'forge_crafting', name: 'forge', budget: 1100 },
-  { file: 'woodcutters_camp', name: 'woodcutter', budget: 1100 },
-  { file: 'windmill_production', name: 'mill', budget: 1000 },
+  { file: 'cottage_housing (1)', name: 'cottage', budget: 1600 },
+  { file: 'longhouse_housing (1)', name: 'longhouse', budget: 1600 },
+  { file: 'granary_storage', name: 'granary', budget: 1600 },
+  { file: 'forge_crafting', name: 'forge', budget: 1600 },
+  { file: 'woodcutters_camp', name: 'woodcutter', budget: 1600 },
+  { file: 'windmill_production', name: 'mill', budget: 1200 },
 ];
 
-/** Windows get the reserved budget slice, so every pane survives to glow. */
-const windowGlass = (m: string) => m === 'window_frame' || m === 'window_pane';
+/**
+ * Detail materials get the reserved budget slice: a proportional share would
+ * starve them to slivers, and they are exactly what sells each building — a
+ * thatch lean-to is the roof of the building it is on, and the smithy's
+ * ironmongery (chains, anvil, racks) is the forge's whole signature.
+ */
+const detail = (m: string) => m === 'thatch_straw' || m === 'iron_dark';
+
+/**
+ * Kept whole, outside the budget. Terracotta roofs are authored as hundreds of
+ * individual tiles over a pale attic prism — there is no good subset of tiles.
+ * Windows are a few dozen triangles a building, and every pane must survive to
+ * glow at night.
+ */
+const keepWhole = (m: string) =>
+  m === 'roof_terracotta' || m === 'window_frame' || m === 'window_pane';
 
 /**
  * The sail cross hangs off the tower's +x face, well above the yard: past
@@ -90,7 +104,7 @@ for (const spec of MODELS) {
   const pieces = baker.chunks.flatMap((c) => baker.components(c));
 
   if (spec.name !== 'mill') {
-    baker.addProp(spec.name, pieces, spec.budget, { structural: windowGlass, grow: false });
+    baker.addProp(spec.name, pieces, spec.budget, { structural: detail, keepAll: keepWhole, grow: false });
     props.push(...baker.props);
     continue;
   }
@@ -100,7 +114,7 @@ for (const spec of MODELS) {
   const tower = pieces.filter((p) => !isSail(p));
   console.log(`mill sails: ${sails.length} pieces (${[...new Set(sails.map((p) => p.material))].join(', ')})`);
 
-  const towerT = baker.addProp('mill', tower, spec.budget, { structural: windowGlass, grow: false });
+  const towerT = baker.addProp('mill', tower, spec.budget, { structural: detail, keepAll: keepWhole, grow: false });
   const sailsT = baker.addProp('mill_sails', sails, SAILS_BUDGET, { grow: false, pivot: 'center' });
   if (!towerT || !sailsT) throw new Error('mill bake came out empty');
 
