@@ -277,6 +277,19 @@ canvas.addEventListener('wheel', (e) => {
 
 window.addEventListener('keydown', (e) => {
   keys.add(e.key.toLowerCase());
+  // A discrete tap should move the camera NOW, not on some future frame.
+  // Held keys keep panning smoothly through handleKeyPan; without this
+  // nudge, a tap shorter than one frame does nothing at all.
+  if (!e.repeat) {
+    const k = e.key.toLowerCase();
+    const step = 1.6 * (view.zoom / 46);
+    if (k === 'w' || k === 'arrowup') view.panWorld(0, -step);
+    if (k === 's' || k === 'arrowdown') view.panWorld(0, step);
+    if (k === 'a' || k === 'arrowleft') view.panWorld(-step, 0);
+    if (k === 'd' || k === 'arrowright') view.panWorld(step, 0);
+    if (k === 'q') view.rotateBy(-0.12);
+    if (k === 'e') view.rotateBy(0.12);
+  }
   if (e.key === 'Escape') {
     if (pendingDef) { pendingDef = null; zoneDrag = null; ui.setBuildSelection(null); }
     else ui.clearSelection();
@@ -597,11 +610,16 @@ function frame(now: number): void {
 
 // Browsers throttle requestAnimationFrame in hidden or occluded tabs, which
 // would freeze the village. A coarse interval keeps the simulation ticking
-// (rendering can wait; the economy should not).
+// (rendering can wait; the economy should not). It drives the camera keys
+// too: input must never depend on the renderer getting scheduled, or WASD
+// silently dies the moment the window is occluded while the clock keeps
+// running — the most confusing possible failure, because the game looks
+// alive and ignores you.
 setInterval(() => {
   const now = performance.now();
   if (now - last > 600) {
     last = now;
+    handleKeyPan(0.25);
     game.update(0.25);
   }
 }, 250);
@@ -615,6 +633,10 @@ document.addEventListener('visibilitychange', () => {
 
 // Give the first-time player somewhere to look and something to read.
 if (boot.resumed) {
+  // Greet once per sitting, not once per chronicle: the old greetings ride
+  // along in the save, so without this sweep the log fills with a "Welcome
+  // back" for every time the game was ever opened (38 of them, at count).
+  game.events = game.events.filter((e) => !e.text.startsWith('Welcome back to your village'));
   game.log(`Welcome back to your village — year ${game.year}, day ${game.dayOfSeason + 1}.`, 'good');
 } else {
   game.log('Pick a building from the bar below, then click the ground to place it.', 'info');
